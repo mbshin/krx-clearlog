@@ -6,6 +6,8 @@ modules — Streamlit re-imports pages on every interaction.
 
 from __future__ import annotations
 
+import gzip
+import io
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -94,19 +96,38 @@ def looks_like_kmap_stream(payload: bytes) -> bool:
     return MARKER in payload
 
 
+def looks_like_gzip(payload: bytes) -> bool:
+    """Heuristic: gzip magic bytes `1f 8b`."""
+    return len(payload) >= 2 and payload[0] == 0x1F and payload[1] == 0x8B
+
+
+def maybe_decompress(payload: bytes) -> tuple[bytes, bool]:
+    """Return (bytes, was_gzip). Decompresses in-memory when gzip is detected.
+
+    Fine for the TR_001-scale file (~77 MB compressed, ~77 MB uncompressed
+    here); the 1.6 GB TR_002 would need a streaming path.
+    """
+    if not looks_like_gzip(payload):
+        return payload, False
+    with gzip.GzipFile(fileobj=io.BytesIO(payload)) as fh:
+        return fh.read(), True
+
+
 def extract(
     payload: bytes,
-) -> tuple[list[KmapFrame], list[bytes]]:
-    """Return (frames, loose_records). Exactly one of the two will be non-empty.
+) -> tuple[list[KmapFrame], list[bytes], bool]:
+    """Return (frames, loose_records, was_gzip).
 
-    If the input looks like a KMAPv2 stream (e.g. an app log with
-    embedded frames), we scan for frames and ignore bytes between
-    them. Otherwise we treat the input as already-extracted records
-    and slice them by TR-code-derived lengths.
+    Always non-destructive. Auto-decompresses gzip input. If the
+    decompressed payload contains KMAPv2 markers we scan for frames
+    and ignore bytes between them; otherwise we treat the input as
+    already-extracted records and slice them by TR-code-derived
+    lengths.
     """
-    if looks_like_kmap_stream(payload):
-        return list(iter_frames(payload)), []
-    return [], list(iter_records(payload))
+    decompressed, was_gzip = maybe_decompress(payload)
+    if looks_like_kmap_stream(decompressed):
+        return list(iter_frames(decompressed)), [], was_gzip
+    return [], list(iter_records(decompressed)), was_gzip
 
 
 def sanitize_paste(text: str) -> bytes:

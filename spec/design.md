@@ -399,13 +399,15 @@ krx-clearlog/
 │       └── serialize.py        # JSON body (Decimal → str) round-trip
 ├── app/
 │   ├── __init__.py
+│   ├── main.py                 # nav shell — st.navigation entry
+│   ├── home.py                 # landing page
 │   ├── helpers.py              # cached registry/parser/engine + scopes
-│   ├── main.py                 # landing page
 │   └── pages/
 │       ├── 1_Paste_Upload.py
 │       ├── 2_Lookup.py
 │       ├── 3_Inspect.py
-│       └── 4_Schemas.py
+│       ├── 4_Schemas.py        # browse + Ace YAML editor (CRUD)
+│       └── 5_Admin.py          # delete by TR / clear errors / truncate
 ├── shl/
 │   ├── install.sh              # offline install (QA + prod)
 │   ├── start.sh                # launch Streamlit, write .krx.pid
@@ -430,27 +432,39 @@ Environment variables:
 
 ## 14. Open Questions
 
-- **Frame decryption** — `krx_parser/frame.py` now extracts KMAPv2
-  frames from arbitrary byte streams (verified against
-  `samples/TR_001`: 37,713 frames extracted in ~0.1 s, ~370k/s).
-  **Every TCSMIH frame observed in that sample has `ENCRYPTED_YN = Y`**
-  (TCSMIH42101 ×454, TCSMIH42401 ×74, TCSMIH42201 ×3, TCSMIH42301 ×2
-  — all cipher-text). Without the decryption routine / key material
-  (produced by `TG_DecryptLOG` in the originating process)
-  `Repository.ingest_frame` persists encrypted frames to
-  `raw_messages` with `parse_status='error'` and `error_detail`
-  carrying the TR code + transport sequence number. Need Koscom to
-  provide the decrypt primitive before we can parse anything from
-  the real logs end-to-end.
-- **TR-code scope** — the frame scan surfaced codes outside our 11:
-  the samples include `SCHHEQ00000` ×15,702 and `SCHHER00000` ×10,468
-  (schedule/event messages, all plaintext) plus `TCSMIH26501`/`26201`/
-  `20501`/`20301`/`70301`/`20701` ranging 4k–100 frames each (all
-  encrypted). `spec/messages.md` only defines the 증거금 messages
-  (TCSMIH41xxx–43xxx); confirm with the customer whether any of
-  these other families are in scope for v1. Our parser already
-  rejects them with `UnknownMessageType` — the frame extractor
-  stores them with the same error marker.
+- **Frame extraction & decryption — resolved.** `krx_parser/frame.py`
+  extracts KMAPv2 frames from arbitrary byte streams at ~370k
+  frames/s (`samples/TR_001`: 37,713 frames in ~0.1 s). The scanner
+  validates each frame's DATA against its envelope
+  (`MSG_SEQ_NUM` = 11 ASCII digits followed by the declared
+  `TRANSACTION_CODE`); this discards the `RECV_0 [KMAPv2.0…]`
+  log-line echoes whose "DATA" is actually log text, leaving the
+  `TG_DecryptLOG [KMAPv2.0…]` frames whose DATA is already plaintext
+  (the producer decrypts before logging). **No external decryption
+  primitive is needed** — the plaintext is already in the log
+  stream. All 533 in-scope frames in TR_001 parse cleanly.
+- **Numeric field format.** Real samples emit numeric-formatted
+  fields (e.g. `TRD_MRGN_RT` in TCSMIH42101) with a **literal decimal
+  point** (`000015.220000` for a 13-byte 6.6 field) rather than a
+  sign byte. The parser now handles both: when
+  `length == int_digits + frac_digits + 1` and the byte at offset
+  `int_digits` is `.`, the dot is stripped and digits are
+  concatenated; otherwise the extra byte is treated as a sign
+  indicator. Negative values with `-` still round-trip.
+- **TR-code scope.** The frame scan surfaces codes outside our 11:
+  `SCHHEQ00000` ×15,702 and `SCHHER00000` ×10,468 (plaintext
+  schedule/event messages) plus `TCSMIH26501`/`26201`/`20501`/
+  `20301`/`70301`/`20701` ranging 4k–100 frames each. `spec/
+  messages.md` only defines the 증거금 messages (TCSMIH41xxx–43xxx).
+  `Repository.ingest_frames(..., skip_unknown_tr=True)` silently
+  drops frames whose TR code isn't in the registry so the DB stays
+  focused; flip the flag to store them as `raw_messages` for later
+  triage. Confirm with the customer whether any non-증거금 codes
+  should be brought in-scope.
+- **Bulk-load throughput.** `iter_frames` takes `bytes`, so the
+  1.6 GB TR_002 sample currently requires the full file in memory.
+  A streaming scanner (chunked decompress + carry-over buffer) is
+  still TBD.
 - **Float sign byte** — the parser currently interprets the single
   unaccounted byte in every Float field (e.g., length 11 vs `7.3`;
   length 22 vs `18.3`; length 10 vs `7.2`) as an optional leading
@@ -489,17 +503,25 @@ Environment variables:
    column labels throughout. Mixed-TR-code streams handled via
    `peek_transaction_code` + `record_length`. Run with
    `streamlit run app/main.py`; verified headless boot (HTTP 200).
-5. **M5 — Hardening** 🟡 partial:
+5. **M5 — Hardening** 🟡 mostly shipped:
    - ✅ KMAPv2 frame extractor (`krx_parser/frame.py`) with
-     `parse_header` / `parse_frame` / `iter_frames` scanner; 11 new
-     tests; verified against `samples/TR_001` at ~370k frames/s.
-   - ✅ `Repository.ingest_frame` + `ingest_frames`: encrypted frames
-     land in `raw_messages` with explicit `error_detail`.
-   - ✅ Paste/Upload page auto-detects KMAPv2 streams vs bare record
-     bytes and shows a per-TR-code breakdown before save.
-   - 🔲 **Decryption routine** — blocker on external key/algo
-     material; without it the real samples are opaque (see §14).
-   - 🔲 Bulk-load performance on the 1.6 GB TR_002 sample.
+     `parse_header` / `parse_frame` / `iter_frames` scanner; DATA
+     self-consistency validation rejects log-line echoes; verified
+     against `samples/TR_001` at ~370k frames/s.
+   - ✅ Decryption sidestepped — the producer's log already contains
+     the decrypted DATA via `TG_DecryptLOG`; all 533 in-scope frames
+     in TR_001 parse cleanly.
+   - ✅ Numeric-field decimal-point format (`000015.220000`)
+     supported alongside the sign-byte + implicit-decimal form.
+   - ✅ `Repository.ingest_frame` + `ingest_frames(skip_unknown_tr=…)`.
+   - ✅ Admin page: delete by TR code, clear error rows, truncate all.
+   - ✅ Upload page: gzip auto-decompress, KMAPv2 auto-detect,
+     per-TR-code breakdown before save.
+   - ✅ Lookup + Inspect: per-row Open button, same-tab `st.switch_page`
+     navigation, **← Back** button, URL-synced filter state.
+   - ✅ Schemas page: Ace YAML editor with live preview + CRUD
+     (`parse_schema_yaml`, `write_schema_text`, `delete_schema_file`).
+   - 🔲 Streaming frame scanner (for the 1.6 GB TR_002 sample).
 6. **M6 — Offline release pipeline**: release-tarball build script
    (TBD under `shl/`) that bundles `wheels/`, `requirements.lock`,
    `alembic/`, `shl/`, and the app sources; verified by running

@@ -129,6 +129,41 @@ def test_array_with_mixed_long_fields(registry):
     assert parsed.arrays["issues"][19]["TRADING_VOLUME_WEIGHTED_AVERAGE_PRICE"] == 10_019
 
 
+def test_decimal_point_numeric_format(registry):
+    """Real samples emit TRD_MRGN_RT with a literal '.' separator
+    (e.g. '000015.220000') instead of the sign-byte + implicit-decimal
+    form. Parser must handle both; here we hand-craft a record where
+    the TRD_MRGN_RT slice uses the dotted form."""
+    schema = registry.get("TCSMIH42101")
+    # Build a record normally, then overwrite one TRD_MRGN_RT slot with
+    # a dotted-form value and confirm it parses.
+    from tests.builder import build_record
+
+    issues = [
+        {"MARKET_IDENTIFICATION": "STK", "SECURITIES_GROUP_IDENTIFICATION": "SG",
+         "ISSUE_CODE": f"KR{i:010d}", "ISU_KOR_ABBRV": "x",
+         "TRD_MRGN_RT": Decimal(0)}
+        for i in range(16)
+    ]
+    raw = bytearray(build_record(schema, fields={
+        "TRANSACTION_CODE": "TCSMIH42101",
+        "TRANSMIT_DATE": "20260423",
+        "EMSG_COMPLT_YN": "N",
+        "MESSAGE_SEQUENCE_NUMBER": 1,
+    }, arrays={"issues": issues}))
+
+    # Find the first issue's TRD_MRGN_RT slice and replace it with
+    # dotted form. Array starts at offset 31, element length 70,
+    # TRD_MRGN_RT sits at element-offset 3+2+12+40 = 57, length 13.
+    arr_start = 31
+    elem_trd_offset = 3 + 2 + 12 + 40
+    slot = arr_start + elem_trd_offset
+    raw[slot : slot + 13] = b"000015.220000"
+
+    parsed = parse(bytes(raw), registry)
+    assert parsed.arrays["issues"][0]["TRD_MRGN_RT"] == Decimal("15.220000")
+
+
 def test_negative_numeric_field(registry):
     """Required-value fields carry a leading sign byte; confirm '-' roundtrips."""
     schema = registry.get("TCSMIH43301")
@@ -206,6 +241,83 @@ def test_schema_sign_byte_validation(registry):
                     assert fld.sign_bytes in (0, 1), (
                         f"{code}.{fld.name}: unexpected sign_bytes={fld.sign_bytes}"
                     )
+
+
+def test_parse_schema_yaml_valid_and_invalid():
+    from krx_parser.exceptions import SchemaValidationError
+    from krx_parser.registry import parse_schema_yaml
+
+    ok = """
+transaction_code: TCSMIHTEST1
+description: test
+market: equity
+encoding: euc-kr
+record_length: 32
+layout:
+  - kind: field
+    name: MESSAGE_SEQUENCE_NUMBER
+    kor_name: x
+    type: Long
+    length: 11
+  - kind: field
+    name: TRANSACTION_CODE
+    kor_name: x
+    type: String
+    length: 11
+  - kind: field
+    name: FILLER_VALUE
+    kor_name: x
+    type: String
+    length: 10
+"""
+    sch = parse_schema_yaml(ok)
+    assert sch.transaction_code == "TCSMIHTEST1"
+    assert sch.record_length == 32
+
+    # Mismatch: declared 1200 but layout sums to 32.
+    bad = ok.replace("record_length: 32", "record_length: 1200")
+    with pytest.raises(SchemaValidationError):
+        parse_schema_yaml(bad)
+
+    # Not a mapping at all.
+    with pytest.raises(SchemaValidationError):
+        parse_schema_yaml("- just\n- a\n- list\n")
+
+    # YAML syntax error.
+    with pytest.raises(SchemaValidationError):
+        parse_schema_yaml(": bad\n  - nope")
+
+
+def test_schema_file_crud(tmp_path):
+    from krx_parser.exceptions import SchemaValidationError
+    from krx_parser.registry import (
+        NEW_SCHEMA_TEMPLATE,
+        delete_schema_file,
+        list_schema_files,
+        read_schema_text,
+        write_schema_text,
+    )
+
+    # Write a valid custom schema.
+    schema = write_schema_text(NEW_SCHEMA_TEMPLATE, schema_dir=tmp_path)
+    assert schema.transaction_code == "TCSMIH00000"
+    assert len(list_schema_files(tmp_path)) == 1
+    assert "transaction_code: TCSMIH00000" in read_schema_text(
+        "TCSMIH00000", schema_dir=tmp_path
+    )
+
+    # expected_transaction_code mismatch rejects.
+    with pytest.raises(SchemaValidationError):
+        write_schema_text(
+            NEW_SCHEMA_TEMPLATE,
+            schema_dir=tmp_path,
+            expected_transaction_code="TCSMIH99999",
+        )
+
+    # Delete.
+    assert delete_schema_file("TCSMIH00000", schema_dir=tmp_path) is True
+    assert delete_schema_file("TCSMIH00000", schema_dir=tmp_path) is False
+    assert list_schema_files(tmp_path) == []
 
 
 def test_duplicate_schema_detection(tmp_path):

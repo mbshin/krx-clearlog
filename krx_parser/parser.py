@@ -166,28 +166,44 @@ def _decode_string(fld: Field, chunk: bytes, encoding: str) -> str:
 
 
 def _decode_numeric(fld: Field, chunk: bytes) -> Decimal:
-    """Decode a fixed-width numeric with implied decimal placement.
+    """Decode a fixed-width numeric with either implicit or explicit
+    decimal placement.
 
-    Layout: optional 1-byte sign, then `int_digits` integer digits,
-    then `frac_digits` fractional digits — no decimal point in the
-    source bytes.
+    When `length == int_digits + frac_digits + 1` the extra byte can
+    be either:
+
+    - **A literal decimal point** sitting between the integer and
+      fractional halves (e.g. `000015.220000`), as observed in
+      TCSMIH42101 samples. Selected when position `int_digits` is `.`.
+    - **A leading sign byte** (`+`, `-`, `' '`, `'0'`) — kept for
+      specs that actually carry signed values. Selected when the
+      first byte is a sign character and the point is absent.
+
+    When `length == int_digits + frac_digits`, all bytes are digits.
     """
     assert fld.int_digits is not None and fld.frac_digits is not None
     text = chunk.decode("ascii")
 
+    sign = 1
     if fld.sign_bytes == 1:
-        sign_char = text[0]
-        digits = text[1:]
-        if sign_char in (" ", "+", "0"):
-            sign = 1
-        elif sign_char == "-":
-            sign = -1
+        if len(text) > fld.int_digits and text[fld.int_digits] == ".":
+            # Embedded decimal point. Strip it out and keep all digits.
+            digits = text[: fld.int_digits] + text[fld.int_digits + 1 :]
         else:
-            raise FieldDecodeError(
-                fld.name, chunk, f"unexpected sign byte {sign_char!r}"
-            )
+            sign_char = text[0]
+            if sign_char in (" ", "+", "0"):
+                sign = 1
+            elif sign_char == "-":
+                sign = -1
+            else:
+                raise FieldDecodeError(
+                    fld.name,
+                    chunk,
+                    f"unexpected sign byte {sign_char!r}"
+                    f" (and byte at int_digits={fld.int_digits} is not '.')",
+                )
+            digits = text[1:]
     else:
-        sign = 1
         digits = text
 
     digits = digits.strip()

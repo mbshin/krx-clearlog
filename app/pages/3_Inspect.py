@@ -23,12 +23,34 @@ def _hex_preview(payload: bytes, per_line: int = 32) -> str:
 
 
 st.set_page_config(page_title="Inspect", page_icon="🔬", layout="wide")
-st.title("Inspect")
+
+back_col, title_col = st.columns([1, 5])
+with back_col:
+    if st.button(
+        "← Back to Lookup",
+        width="stretch",
+        type="primary",
+        key="back_to_lookup",
+    ):
+        # Restore the filter URL we captured before navigating here so
+        # the user lands on the exact same filtered view.
+        saved_qp = st.session_state.get("lookup_return_qp")
+        st.query_params.clear()
+        if saved_qp:
+            for k, v in saved_qp.items():
+                st.query_params[k] = v
+        st.switch_page("pages/2_Lookup.py")
+with title_col:
+    st.title("🔬 Inspect")
 
 registry = get_registry()
 
 qp_id = st.query_params.get("id")
-default_id = int(qp_id) if qp_id and qp_id.isdigit() else 0
+default_id = 0
+if qp_id and qp_id.isdigit():
+    default_id = int(qp_id)
+elif st.session_state.get("inspect_id"):
+    default_id = int(st.session_state["inspect_id"])
 parsed_id = st.number_input(
     "Parsed message ID",
     min_value=0,
@@ -38,7 +60,7 @@ parsed_id = st.number_input(
 )
 
 if not parsed_id:
-    st.info("Enter an ID above, or open this page from a Lookup row.")
+    st.info("Enter an ID above, or open this page via the 🔎 link on **Lookup**.")
     st.stop()
 
 with repo_scope() as repo:
@@ -48,68 +70,80 @@ if stored is None:
     st.error(f"No parsed message with id={parsed_id}.")
     st.stop()
 
-st.subheader(f"{stored.transaction_code} — 일련번호 {stored.message_sequence_number}")
+schema = registry.get(stored.transaction_code) if stored.transaction_code in registry else None
 
-meta_cols = st.columns(4)
-meta_cols[0].metric("전송일자", stored.transmit_date)
-meta_cols[1].metric("완료여부", stored.emsg_complt_yn)
-meta_cols[2].metric("소스", stored.source)
-meta_cols[3].metric("수신", stored.received_at.isoformat(sep=" ", timespec="seconds"))
-
-st.divider()
-
-if stored.transaction_code not in registry:
-    st.warning(
-        f"TR code {stored.transaction_code} is not registered; "
-        "field labels unavailable."
+with st.container(border=True):
+    header_cols = st.columns([2, 1, 1])
+    header_cols[0].markdown(
+        f"### {stored.transaction_code}\n"
+        + (f"*{schema.description}*" if schema else "*(schema not registered)*")
     )
-    st.json(stored.fields)
-    if stored.arrays:
-        st.json(stored.arrays)
-else:
-    schema = registry.get(stored.transaction_code)
+    header_cols[1].metric("일련번호", stored.message_sequence_number)
+    header_cols[2].metric("전송일자", stored.transmit_date)
 
-    st.markdown("### Fields")
-    flat_rows = [
-        {
-            "Seq": i + 1,
-            "필드 (KR)": fld.kor_name,
-            "Field (EN)": fld.name,
-            "Type": fld.type,
-            "Len": fld.length,
-            "값": _format(stored.fields.get(fld.name)),
-        }
-        for i, fld in enumerate(iter_flat_fields(schema))
-    ]
-    st.dataframe(flat_rows, use_container_width=True, hide_index=True)
+    meta = st.columns(4)
+    meta[0].metric("완료여부", stored.emsg_complt_yn)
+    meta[1].metric("Parsed ID", stored.parsed_id)
+    meta[2].metric("Raw ID", stored.raw_id)
+    meta[3].metric("Source", stored.source)
 
-    for arr in iter_arrays(schema):
-        records = stored.arrays.get(arr.name, [])
-        st.markdown(f"### Array · {arr.name} ({len(records)} × {arr.record_length} bytes)")
-        if not records:
-            st.caption("(no elements)")
-            continue
-        # Pivot to KR-label columns
-        columns = [fld.kor_name for fld in arr.fields]
-        data_rows = []
-        for rec in records:
-            data_rows.append({
-                fld.kor_name: _format(rec.get(fld.name)) for fld in arr.fields
-            })
-        st.dataframe(data_rows, use_container_width=True, hide_index=True)
-        st.caption(", ".join(f"{fld.kor_name} = `{fld.name}`" for fld in arr.fields))
+tab_body, tab_raw = st.tabs(["📋 Fields & Arrays", "🗂️ Raw payload"])
 
-st.divider()
+with tab_body:
+    if schema is None:
+        st.warning("TR code not in schema — raw fields below.")
+        st.json(stored.fields)
+    else:
+        st.markdown("#### Fields")
+        flat_rows = [
+            {
+                "Seq": i + 1,
+                "필드 (KR)": fld.kor_name,
+                "Field (EN)": fld.name,
+                "Type": fld.type,
+                "Len": fld.length,
+                "값": _format(stored.fields.get(fld.name)),
+            }
+            for i, fld in enumerate(iter_flat_fields(schema))
+        ]
+        st.dataframe(flat_rows, width="stretch", hide_index=True)
 
-st.markdown("### Raw payload")
-st.caption(f"{len(stored.payload):,} bytes")
-col_hex, col_text = st.columns(2)
-with col_hex:
-    st.text("hex")
-    st.code(_hex_preview(stored.payload), language="text")
-with col_text:
-    st.text("ASCII (best-effort EUC-KR)")
-    try:
-        st.code(stored.payload.decode("euc-kr", errors="replace"), language="text")
-    except Exception as exc:  # noqa: BLE001
-        st.error(f"decode failed: {exc}")
+        arrays = list(iter_arrays(schema))
+        if arrays:
+            st.markdown("#### Arrays")
+            for arr in arrays:
+                records = stored.arrays.get(arr.name, [])
+                with st.container(border=True):
+                    st.markdown(
+                        f"**`{arr.name}`** — {len(records)} × {arr.record_length} bytes "
+                        f"(declared: {arr.count})"
+                    )
+                    st.caption(
+                        ", ".join(f"{fld.kor_name} = `{fld.name}`" for fld in arr.fields)
+                    )
+                    if records:
+                        data_rows = [
+                            {fld.kor_name: _format(rec.get(fld.name)) for fld in arr.fields}
+                            for rec in records
+                        ]
+                        st.dataframe(data_rows, width="stretch", hide_index=True)
+                    else:
+                        st.caption("(no elements)")
+
+with tab_raw:
+    st.caption(f"{len(stored.payload):,} bytes")
+    col_hex, col_text = st.columns(2)
+    with col_hex:
+        st.markdown("**Hex**")
+        st.code(_hex_preview(stored.payload[:1024]), language="text")
+        if len(stored.payload) > 1024:
+            st.caption(f"(first 1,024 of {len(stored.payload):,} bytes shown)")
+    with col_text:
+        st.markdown("**ASCII / EUC-KR (best-effort)**")
+        try:
+            st.code(
+                stored.payload[:1024].decode("euc-kr", errors="replace"),
+                language="text",
+            )
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"decode failed: {exc}")

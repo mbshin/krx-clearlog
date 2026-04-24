@@ -146,6 +146,7 @@ def iter_frames(
     stream: bytes | bytearray | memoryview,
     *,
     skip_invalid: bool = True,
+    validate_data: bool = True,
 ) -> Iterator[KmapFrame]:
     """Scan a byte stream and yield every well-formed KMAPv2 frame.
 
@@ -154,10 +155,19 @@ def iter_frames(
     marker that yields a parseable header+DATA is emitted; invalid
     occurrences are either skipped (default) or raised.
 
-    The scan is non-overlapping: once a frame is emitted, the cursor
-    advances past its DATA. If a `KMAPv2.0` marker's header parses
-    but DATA is truncated at end-of-stream, the partial trailer is
-    dropped.
+    When `validate_data=True` (default), we require the DATA block's
+    first 22 bytes to look like `MESSAGE_SEQUENCE_NUMBER` (11 ASCII
+    digits) + `TRANSACTION_CODE` that matches the header's
+    `MESSAGE_TYPE`. This rejects the `RECV_0 [KMAPv2.0…]` log-line
+    copies whose "DATA" is actually log text (e.g. `] RECV_SEQ=…`)
+    rather than the record payload. Without this check the scanner
+    would advance past the encrypted RECV copy and miss the
+    decrypted `TG_DecryptLOG` frame that follows.
+
+    The scan is non-overlapping for valid frames: once a frame is
+    emitted, the cursor advances past its DATA. For rejected
+    candidates the cursor advances by one byte so the real frame
+    trailing behind can still be found.
     """
     buf = bytes(stream) if not isinstance(stream, bytes) else stream
     n = len(buf)
@@ -170,22 +180,50 @@ def iter_frames(
             header = parse_header(buf[marker_at : marker_at + HEADER_LENGTH])
         except FieldDecodeError:
             if skip_invalid:
-                # Advance by 1 so overlapping markers are still found; in
-                # practice the marker is 8 bytes and false positives are
-                # vanishingly rare.
                 i = marker_at + 1
                 continue
             raise
 
         total = HEADER_LENGTH + header.message_length
         if marker_at + total > n:
-            # Truncated DATA at end-of-stream; nothing more to do.
             break
 
         data = buf[marker_at + HEADER_LENGTH : marker_at + total]
+        if validate_data and not _data_matches_header(data, header):
+            if skip_invalid:
+                i = marker_at + 1
+                continue
+            raise FieldDecodeError(
+                "KMAPv2.frame",
+                bytes(data[:32]),
+                f"DATA does not begin with MSG_SEQ_NUM + {header.message_type!r}",
+            )
+
         yield KmapFrame(
             header=header,
             data=bytes(data),
             raw=bytes(buf[marker_at : marker_at + total]),
         )
         i = marker_at + total
+
+
+def _data_matches_header(data: bytes | memoryview, header: KmapHeader) -> bool:
+    """True when DATA's body-level shared header (MSG_SEQ_NUM + TR code
+    at bytes 0..22) is consistent with the KMAPv2 envelope.
+
+    Used by `iter_frames` to discard log-line echoes of the RECV
+    envelope whose "DATA" is actually downstream log text, not the
+    record payload. Requires the payload to be at least 22 bytes;
+    shorter DATA blocks are conservatively accepted (might be a
+    non-TCSMIH message we don't know the shape of).
+    """
+    if len(data) < 22:
+        return True
+    if not all(0x30 <= b <= 0x39 for b in data[:11]):
+        return False
+    tr_slice = bytes(data[11:22])
+    try:
+        tr_text = tr_slice.decode("ascii").rstrip(" ")
+    except UnicodeDecodeError:
+        return False
+    return tr_text == header.message_type

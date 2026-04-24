@@ -100,30 +100,38 @@ class Repository:
     ) -> StoredMessage | RawMessage:
         """Persist a KMAPv2 frame.
 
-        Encrypted frames are stored verbatim with `parse_status='error'`
-        and `error_detail='encrypted (ENCRYPTED_YN=Y)'` — decryption is
-        out of scope until key material is available. Plain-text frames
-        are forwarded to `ingest()` and parsed normally.
+        We always attempt to parse the DATA block regardless of
+        `ENCRYPTED_YN`. In the sample logs the frames emitted by
+        `TG_DecryptLOG` carry the original `Y` flag but with plaintext
+        DATA, so gating on the flag would drop otherwise-parseable
+        records. If parsing fails (schema mismatch, truly encrypted
+        bytes, unknown TR code) the row lands in `raw_messages` with
+        `parse_status='error'` via the normal `ingest()` path.
         """
-        if frame.header.is_encrypted:
-            raw = RawMessage(
-                source=source,
-                payload=frame.raw,
-                parse_status=ParseStatus.ERROR.value,
-                error_detail=(
-                    f"encrypted (ENCRYPTED_YN=Y); tr_code={frame.header.message_type}"
-                    f"; seq={frame.header.sequence_number}"
-                ),
-            )
-            self.session.add(raw)
-            self.session.flush()
-            return raw
         return self.ingest(frame.data, source=source)
 
     def ingest_frames(
-        self, frames: Iterable[KmapFrame], *, source: str
-    ) -> list[object]:
-        return [self.ingest_frame(f, source=source) for f in frames]
+        self,
+        frames: Iterable[KmapFrame],
+        *,
+        source: str,
+        skip_unknown_tr: bool = True,
+    ) -> tuple[list[object], int]:
+        """Ingest a batch of frames. Returns `(results, skipped)`.
+
+        `skipped` counts frames whose `message_type` is not in the
+        schema registry — those are silently dropped (no raw row
+        written) to keep the DB focused on in-scope messages.
+        """
+        results: list[object] = []
+        skipped = 0
+        known = set(self._registry.codes())
+        for frame in frames:
+            if skip_unknown_tr and frame.header.message_type not in known:
+                skipped += 1
+                continue
+            results.append(self.ingest_frame(frame, source=source))
+        return results, skipped
 
     # --- reads --------------------------------------------------------
 
@@ -177,6 +185,65 @@ class Repository:
             sa.func.count(ParsedMessageRow.id),
         ).group_by(ParsedMessageRow.transaction_code)
         return {tr: n for tr, n in self.session.execute(stmt).all()}
+
+    def count_errors(self) -> int:
+        return self.session.scalar(
+            sa.select(sa.func.count(RawMessage.id)).where(
+                RawMessage.parse_status == ParseStatus.ERROR.value
+            )
+        ) or 0
+
+    def count_raw(self) -> int:
+        return self.session.scalar(sa.select(sa.func.count(RawMessage.id))) or 0
+
+    # --- deletes ------------------------------------------------------
+
+    def delete_all(self) -> tuple[int, int]:
+        """Truncate both tables. Returns (raw_deleted, parsed_deleted)."""
+        parsed = self.session.execute(sa.delete(ParsedMessageRow)).rowcount or 0
+        raw = self.session.execute(sa.delete(RawMessage)).rowcount or 0
+        self.session.flush()
+        return raw, parsed
+
+    def delete_by_transaction_code(self, transaction_code: str) -> tuple[int, int]:
+        """Delete all parsed rows for a TR code and their linked raw rows.
+        Returns (raw_deleted, parsed_deleted)."""
+        raw_ids_stmt = sa.select(ParsedMessageRow.raw_message_id).where(
+            ParsedMessageRow.transaction_code == transaction_code
+        )
+        raw_ids = [r for (r,) in self.session.execute(raw_ids_stmt).all()]
+
+        parsed = (
+            self.session.execute(
+                sa.delete(ParsedMessageRow).where(
+                    ParsedMessageRow.transaction_code == transaction_code
+                )
+            ).rowcount
+            or 0
+        )
+        raw = 0
+        if raw_ids:
+            raw = (
+                self.session.execute(
+                    sa.delete(RawMessage).where(RawMessage.id.in_(raw_ids))
+                ).rowcount
+                or 0
+            )
+        self.session.flush()
+        return raw, parsed
+
+    def delete_errors(self) -> int:
+        """Delete raw rows whose parse_status is 'error'. Returns count."""
+        n = (
+            self.session.execute(
+                sa.delete(RawMessage).where(
+                    RawMessage.parse_status == ParseStatus.ERROR.value
+                )
+            ).rowcount
+            or 0
+        )
+        self.session.flush()
+        return n
 
     # --- internals ----------------------------------------------------
 

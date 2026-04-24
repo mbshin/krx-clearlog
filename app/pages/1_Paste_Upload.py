@@ -1,11 +1,17 @@
 """Paste or upload raw record bytes; preview; save to DB.
 
-Auto-detects KMAPv2-framed logs vs. already-extracted record streams.
-Encrypted frames are saved as `raw_messages` with `parse_status='error'`;
-they cannot be parsed without the decryption routine (see §M5 plan).
+Auto-detects:
+  - gzip input (decompresses in memory before scanning)
+  - KMAPv2-framed logs vs. already-extracted record streams
+Frames whose TR code isn't in the schema registry are skipped; frames
+that match a schema but fail to parse (e.g. still-encrypted RECV copies)
+land in raw_messages with parse_status='error'.
 """
 
 from __future__ import annotations
+
+import traceback
+from collections import Counter
 
 import streamlit as st
 
@@ -21,164 +27,160 @@ from krx_parser.db.models import RawMessage
 from krx_parser.db.repository import StoredMessage
 
 st.set_page_config(page_title="Paste / Upload", page_icon="📥", layout="wide")
-st.title("Paste / Upload")
+st.title("📥 Paste / Upload")
+st.caption(
+    "Accepts raw KRX log bytes (KMAPv2-framed), concatenated "
+    "pre-extracted records, or a `.gz` of either."
+)
 
 parser = get_parser()
 registry = get_registry()
 
-tab_paste, tab_file = st.tabs(["Paste text", "Upload file"])
+with st.container(border=True):
+    st.markdown("#### 1 · Provide input")
+    uploaded = st.file_uploader(
+        "Upload a log file (.log / .log.gz / binary)",
+        type=None,
+        accept_multiple_files=False,
+        help="Max ~500 MB.",
+    )
+    text = st.text_area(
+        "Or paste text (concatenated records — not a binary log)",
+        height=120,
+    )
+    source_label = st.text_input(
+        "Source label (saved with each row)",
+        value=uploaded.name if uploaded else "paste",
+    )
 
-with tab_paste:
+payload: bytes | None = None
+if uploaded is not None:
+    try:
+        payload = uploaded.getvalue()
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"Failed to read uploaded file: {type(exc).__name__}: {exc}")
+        payload = None
+elif text.strip():
+    payload = sanitize_paste(text)
+
+if payload is None:
+    st.info("Upload a file or paste text above to preview.")
+    st.stop()
+
+st.markdown("#### 2 · Preview")
+st.caption(f"{len(payload):,} bytes received.")
+
+try:
+    frames, records, was_gzip = extract(payload)
+except Exception as exc:  # noqa: BLE001
+    st.error(f"extract() failed: {type(exc).__name__}: {exc}")
+    st.code(traceback.format_exc(), language="text")
+    st.stop()
+
+if was_gzip:
+    st.caption("Detected **gzip** input — decompressed in memory before scanning.")
+
+if frames:
+    encrypted = sum(1 for f in frames if f.header.is_encrypted)
+    in_scope = sum(1 for f in frames if f.header.message_type in registry)
     st.caption(
-        "Paste raw record text below. The page auto-detects KMAPv2-framed "
-        "logs (e.g. producer stdout captures) — otherwise it treats input "
-        "as concatenated pre-extracted record bytes."
+        f"Detected **{len(frames):,}** KMAPv2 frame(s) — "
+        f"{in_scope:,} in-scope for our schemas, "
+        f"{encrypted:,} carry ENCRYPTED_YN=Y."
     )
-    text = st.text_area("Paste", height=220, key="paste_text")
-    source = st.text_input("Source label", value="paste", key="paste_source")
-    paste_submit = st.button("Preview", key="paste_preview")
-    if paste_submit and text:
-        st.session_state["input_payload"] = sanitize_paste(text)
-        st.session_state["input_source"] = source
 
-with tab_file:
-    uploaded = st.file_uploader("Upload log file", type=None, key="upload_file")
-    upload_source = st.text_input(
-        "Source label",
-        value=uploaded.name if uploaded else "",
-        key="upload_source",
+    tr_counts = Counter(f.header.message_type for f in frames)
+    st.dataframe(
+        [
+            {
+                "TR code": tr,
+                "frames": n,
+                "encrypted (flag)": sum(
+                    1 for f in frames
+                    if f.header.message_type == tr and f.header.is_encrypted
+                ),
+                "in schema": tr in registry,
+            }
+            for tr, n in tr_counts.most_common()
+        ],
+        width="stretch",
+        hide_index=True,
     )
-    if uploaded is not None:
-        st.session_state["input_payload"] = uploaded.getvalue()
-        st.session_state["input_source"] = upload_source or uploaded.name
 
-payload: bytes | None = st.session_state.get("input_payload")
-source: str | None = st.session_state.get("input_source")
-
-if payload:
-    st.divider()
-    st.subheader("Preview")
-    st.caption(f"{len(payload):,} bytes received.")
-
-    frames, records = extract(payload)
-
-    if frames:
-        encrypted = [f for f in frames if f.header.is_encrypted]
-        plain = [f for f in frames if not f.header.is_encrypted]
-        st.caption(
-            f"Detected **{len(frames)}** KMAPv2 frame(s) — "
-            f"{len(plain)} plaintext, {len(encrypted)} encrypted."
-        )
-
-        from collections import Counter
-
-        tr_counts = Counter(f.header.message_type for f in frames)
-        st.dataframe(
-            [
-                {
-                    "TR code": tr,
-                    "frames": n,
-                    "encrypted": sum(
-                        1
-                        for f in frames
-                        if f.header.message_type == tr and f.header.is_encrypted
-                    ),
-                    "in schema": tr in registry,
-                }
-                for tr, n in tr_counts.most_common()
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        if encrypted:
-            st.warning(
-                f"{len(encrypted)} encrypted frame(s) cannot be parsed until "
-                "a decryption routine is available. They will be saved to "
-                "`raw_messages` with `parse_status='error'`."
-            )
-
-        if plain:
-            with st.expander(f"Plaintext preview — first frame ({plain[0].header.message_type})"):
-                first = plain[0]
-                if first.header.message_type in registry:
-                    parsed = parser.parse(first.data)
-                    schema = registry.get(parsed.transaction_code)
-                    labels = korean_labels(schema)
-                    st.dataframe(
-                        [
-                            {"필드": labels.get(k, k), "EN": k, "값": str(v)}
-                            for k, v in parsed.fields.items()
-                        ],
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-                else:
-                    st.info(
-                        f"{first.header.message_type} is not in the schema "
-                        "registry — will land as UnknownMessageType."
-                    )
-
-        if st.button("Save to database", type="primary"):
-            with repo_scope() as repo:
-                results = repo.ingest_frames(frames, source=source or "paste")
-            n_ok = sum(1 for r in results if isinstance(r, StoredMessage))
-            n_err = sum(1 for r in results if isinstance(r, RawMessage))
-            st.success(
-                f"Saved {n_ok} parsed record(s) and {n_err} error row(s) "
-                f"(encrypted + unparseable)."
-            )
-            st.session_state.pop("input_payload", None)
-            st.session_state.pop("input_source", None)
-
-    else:
-        st.caption(f"Detected **{len(records)}** complete record(s) (no KMAPv2 framing).")
-
-        if records:
-            preview_n = st.slider(
-                "Preview rows",
-                min_value=1,
-                max_value=min(50, len(records)),
-                value=min(10, len(records)),
-            )
-            preview_rows = []
-            for rec in records[:preview_n]:
-                try:
-                    parsed = parser.parse(rec)
-                    preview_rows.append({
-                        "TR": parsed.transaction_code,
-                        "일련번호": parsed.message_sequence_number,
-                        "전송일자": parsed.transmit_date,
-                        "전문완료여부": parsed.emsg_complt_yn,
-                        "bytes": len(rec),
-                    })
-                except Exception as exc:  # noqa: BLE001
-                    preview_rows.append({
-                        "TR": "?", "error": f"{type(exc).__name__}: {exc}",
-                    })
-            st.dataframe(preview_rows, use_container_width=True, hide_index=True)
-
-            if preview_rows and "error" not in preview_rows[0]:
-                first = parser.parse(records[0])
-                schema = registry.get(first.transaction_code)
-                labels = korean_labels(schema)
-                with st.expander(f"Detail — record 1 ({first.transaction_code})"):
-                    st.dataframe(
-                        [
-                            {"필드": labels.get(k, k), "EN": k, "값": str(v)}
-                            for k, v in first.fields.items()
-                        ],
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-
-            if st.button("Save to database", type="primary"):
-                with repo_scope() as repo:
-                    results = repo.ingest_many(records, source=source or "paste")
-                n_ok = sum(1 for r in results if isinstance(r, StoredMessage))
-                n_err = sum(1 for r in results if isinstance(r, RawMessage))
-                st.success(
-                    f"Saved {n_ok} parsed record(s) and {n_err} unparseable row(s)."
+    # Detail preview for the first in-scope frame we can parse.
+    in_scope_frames = [f for f in frames if f.header.message_type in registry]
+    if in_scope_frames:
+        first = in_scope_frames[0]
+        try:
+            parsed_preview = parser.parse(first.data)
+            schema = registry.get(parsed_preview.transaction_code)
+            labels = korean_labels(schema)
+            with st.expander(f"Detail — first in-scope frame ({first.header.message_type})"):
+                st.dataframe(
+                    [
+                        {"필드": labels.get(k, k), "EN": k, "값": str(v)}
+                        for k, v in parsed_preview.fields.items()
+                    ],
+                    width="stretch",
+                    hide_index=True,
                 )
-                st.session_state.pop("input_payload", None)
-                st.session_state.pop("input_source", None)
+        except Exception as exc:  # noqa: BLE001
+            st.caption(
+                f"First in-scope frame ({first.header.message_type}) "
+                f"failed to parse: {exc}"
+            )
+
+    if st.button("Save to database", type="primary"):
+        with st.spinner("Ingesting frames..."):
+            with repo_scope() as repo:
+                results, skipped = repo.ingest_frames(
+                    frames, source=source_label or "upload"
+                )
+        n_ok = sum(1 for r in results if isinstance(r, StoredMessage))
+        n_err = sum(1 for r in results if isinstance(r, RawMessage))
+        st.success(
+            f"Saved {n_ok:,} parsed record(s). "
+            f"{n_err:,} in-scope frame(s) failed to parse. "
+            f"{skipped:,} frame(s) skipped (TR code outside schema registry)."
+        )
+
+elif records:
+    st.caption(f"Detected **{len(records):,}** complete record(s) (no KMAPv2 framing).")
+
+    preview_n = st.slider(
+        "Preview rows",
+        min_value=1,
+        max_value=min(50, len(records)),
+        value=min(10, len(records)),
+    )
+    preview_rows = []
+    for rec in records[:preview_n]:
+        try:
+            parsed = parser.parse(rec)
+            preview_rows.append({
+                "TR": parsed.transaction_code,
+                "일련번호": parsed.message_sequence_number,
+                "전송일자": parsed.transmit_date,
+                "전문완료여부": parsed.emsg_complt_yn,
+                "bytes": len(rec),
+            })
+        except Exception as exc:  # noqa: BLE001
+            preview_rows.append({
+                "TR": "?", "error": f"{type(exc).__name__}: {exc}",
+            })
+    st.dataframe(preview_rows, width="stretch", hide_index=True)
+
+    if st.button("Save to database", type="primary"):
+        with st.spinner("Ingesting records..."):
+            with repo_scope() as repo:
+                results = repo.ingest_many(records, source=source_label or "paste")
+        n_ok = sum(1 for r in results if isinstance(r, StoredMessage))
+        n_err = sum(1 for r in results if isinstance(r, RawMessage))
+        st.success(f"Saved {n_ok:,} parsed record(s), {n_err:,} unparseable row(s).")
+
+else:
+    st.warning(
+        "Could not detect any KMAPv2 frames or back-to-back records. "
+        "First 120 bytes (hex):"
+    )
+    st.code(" ".join(f"{b:02x}" for b in payload[:120]))

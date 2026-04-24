@@ -157,7 +157,34 @@ def test_ingest_frame_plaintext_parses(repo, registry):
     assert stored.fields["MEMBER_NUMBER"] == "M0001"
 
 
-def test_ingest_frame_encrypted_parks_as_error(repo, session):
+def test_ingest_frame_ignores_encrypted_flag_when_data_is_plaintext(
+    repo, registry, session
+):
+    """Frames emitted by TG_DecryptLOG carry encrypted_yn='Y' but the
+    DATA after the header is already plaintext. We should parse
+    regardless of the flag and succeed when the schema matches."""
+    schema = registry.get("TCSMIH42201")
+    data = build_record(schema, fields={
+        "TRANSACTION_CODE": "TCSMIH42201",
+        "TRANSMIT_DATE": "20260423",
+        "EMSG_COMPLT_YN": "Y",
+        "MESSAGE_SEQUENCE_NUMBER": 7,
+        "MEMBER_NUMBER": "M0007",
+    })
+    raw = build_header(
+        tr_code="TCSMIH42201", data_length=1200, encrypted="Y"
+    ) + data
+    frame = parse_frame(raw)
+    from krx_parser.db.repository import StoredMessage
+
+    stored = repo.ingest_frame(frame, source="pytest")
+    assert isinstance(stored, StoredMessage)
+    assert stored.fields["MEMBER_NUMBER"] == "M0007"
+
+
+def test_ingest_frame_unparseable_data_parks_as_error(repo, session):
+    """Truly un-parseable DATA (encryption / corruption) lands in
+    raw_messages with parse_status='error'."""
     data = b"\x00" * 1200
     raw = build_header(tr_code="TCSMIH42201", data_length=1200, encrypted="Y") + data
     frame = parse_frame(raw)
@@ -165,12 +192,89 @@ def test_ingest_frame_encrypted_parks_as_error(repo, session):
     result = repo.ingest_frame(frame, source="pytest")
     assert isinstance(result, RawMessage)
     assert result.parse_status == ParseStatus.ERROR.value
-    assert "encrypted" in (result.error_detail or "")
-    # Full envelope + DATA preserved for forensic decryption later.
-    assert result.payload == frame.raw
     assert session.scalar(
         sa.select(sa.func.count(ParsedMessageRow.id))
     ) == 0
+
+
+def test_delete_all(repo, registry):
+    schema = registry.get("TCSMIH42201")
+    for i in range(3):
+        payload = build_record(schema, fields={
+            "TRANSACTION_CODE": "TCSMIH42201",
+            "TRANSMIT_DATE": "20260424",
+            "EMSG_COMPLT_YN": "Y",
+            "MESSAGE_SEQUENCE_NUMBER": i + 1,
+        })
+        repo.ingest(payload, source="pytest")
+
+    raw_n, parsed_n = repo.delete_all()
+    assert raw_n == 3 and parsed_n == 3
+    assert repo.count_raw() == 0
+    assert repo.count_by_transaction_code() == {}
+
+
+def test_delete_by_transaction_code(repo, registry):
+    for tr in ("TCSMIH42201", "TCSMIH42201", "TCSMIH43201"):
+        schema = registry.get(tr)
+        payload = build_record(schema, fields={
+            "TRANSACTION_CODE": tr,
+            "TRANSMIT_DATE": "20260424",
+            "EMSG_COMPLT_YN": "Y",
+            "MESSAGE_SEQUENCE_NUMBER": 1,
+        })
+        repo.ingest(payload, source="pytest")
+
+    raw_n, parsed_n = repo.delete_by_transaction_code("TCSMIH42201")
+    assert raw_n == 2 and parsed_n == 2
+    assert repo.count_by_transaction_code() == {"TCSMIH43201": 1}
+    # Raw row for the surviving TR code is still there.
+    assert repo.count_raw() == 1
+
+
+def test_delete_errors_only(repo, registry):
+    # One parseable payload + two unparseable ones
+    schema = registry.get("TCSMIH42201")
+    repo.ingest(
+        build_record(schema, fields={
+            "TRANSACTION_CODE": "TCSMIH42201",
+            "TRANSMIT_DATE": "20260424",
+            "EMSG_COMPLT_YN": "Y",
+            "MESSAGE_SEQUENCE_NUMBER": 1,
+        }),
+        source="pytest",
+    )
+    repo.ingest(b"X" * 1200, source="pytest")
+    repo.ingest(b"Y" * 1200, source="pytest")
+
+    assert repo.count_errors() == 2
+    assert repo.count_raw() == 3
+
+    n = repo.delete_errors()
+    assert n == 2
+    assert repo.count_errors() == 0
+    # Parsed row untouched
+    assert repo.count_by_transaction_code() == {"TCSMIH42201": 1}
+    assert repo.count_raw() == 1
+
+
+def test_ingest_frames_skips_unknown_tr(repo, registry):
+    """Frames whose TR code isn't registered are dropped (no raw row)
+    by default."""
+    # Build a "frame" with an out-of-scope TR code. Its DATA doesn't
+    # matter — the filter should short-circuit before parse.
+    raw = build_header(tr_code="SCHHEQ00000", data_length=100) + b"x" * 100
+    frame = parse_frame(raw)
+
+    schema = registry.get("TCSMIH42201")
+    in_scope = parse_frame(
+        build_header(tr_code="TCSMIH42201", data_length=1200)
+        + build_record(schema, fields={"TRANSACTION_CODE": "TCSMIH42201"})
+    )
+
+    results, skipped = repo.ingest_frames([frame, in_scope], source="pytest")
+    assert skipped == 1
+    assert len(results) == 1
 
 
 def test_count_by_transaction_code(repo, registry):
