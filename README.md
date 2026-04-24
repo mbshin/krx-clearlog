@@ -7,6 +7,8 @@ RHEL 8.
 See [`spec/design.md`](./spec/design.md) for architecture, scope, and
 milestones; [`spec/messages.md`](./spec/messages.md) and
 [`spec/codes.md`](./spec/codes.md) for the message specifications.
+Full setup / install / run walkthrough (developer + air-gapped
+RHEL 8) lives in [`docs/INSTALL.md`](./docs/INSTALL.md).
 
 ## Quickstart
 
