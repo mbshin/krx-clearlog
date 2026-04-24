@@ -400,23 +400,22 @@ Environment variables:
 
 ## 14. Open Questions
 
-- **Record framing (from sample inspection)** — the `.log.gz` files
-  under `samples/` are the producer process's stdout/stderr stream
-  (syslog-style lines like
-  `HH:MM:SS.uuuuuu LibProcEnv.c :InitExeArg :0293] I START === …`),
-  not raw record streams. TCSMIH records are embedded inside log
-  lines wrapped as `[KMAPv2.<7-digit-length><envelope-bytes><record>]`
-  (observed lengths include `0001200` and `0001624`). Two concerns:
-  1. **Ingestion adapter** — the parser currently accepts a clean
-     1,200-byte slice; a log-to-record extractor that recognises the
-     `KMAPv2.` frame header and strips the envelope still needs to be
-     built (belongs in M3/M4, not M2).
-  2. **TR-code scope** — the samples contain heavy volumes of codes
-     outside our 11 (e.g. `TCSMIH26901` 850k, `TCSMIH10501` / `10401`
-     500k each, `TCSMIH23101` 2.8k). `spec/messages.md` only defines
-     the 증거금 messages (TCSMIH41xxx–43xxx); confirm with the
-     customer whether the non-증거금 codes are in-scope for v1 or
-     whether the parser should just log `UnknownMessageType` and skip.
+- **Frame extraction adapter** — `.log.gz` files under `samples/` are
+  the producer's stdout/stderr stream; KRX records are embedded
+  inside `[KMAPv2.0<len><…><data>]` frames whose 82-byte header is
+  now documented in [`messages.md` §0](./messages.md#0-kmapv2-frame-header-transport-envelope).
+  The parser currently accepts a clean DATA slice (1,200 bytes for
+  the 증거금 family); a log-line scanner that locates frames, strips
+  the envelope, and — when `ENCRYPTED_YN = Y` — decrypts the DATA
+  block still needs to be built. Decryption routine and key material
+  are external (see `TG_DecryptLOG` in sample logs). Scope this into
+  the ingestion adapter, not the core parser.
+- **TR-code scope** — the samples contain heavy volumes of codes
+  outside our 11 (e.g. `TCSMIH26901` 850k, `TCSMIH10501` / `10401`
+  500k each, `TCSMIH23101` 2.8k). `spec/messages.md` only defines
+  the 증거금 messages (TCSMIH41xxx–43xxx); confirm with the
+  customer whether the non-증거금 codes are in-scope for v1 or
+  whether the parser should just log `UnknownMessageType` and skip.
 - **Float sign byte** — the parser currently interprets the single
   unaccounted byte in every Float field (e.g., length 11 vs `7.3`;
   length 22 vs `18.3`; length 10 vs `7.2`) as an optional leading
@@ -443,12 +442,20 @@ Environment variables:
    values, unknown codes, and short input. Fixtures are built
    programmatically via `tests/builder.py` until live-record framing
    is resolved (see §14).
-3. **M3 — Persistence**: SQLAlchemy models, Alembic baseline,
-   repository round-trip tests.
-4. **M4 — Streamlit MVP**: Paste/Upload + Lookup pages end-to-end with
-   Korean column headers.
-5. **M5 — Inspect/Schemas pages + hardening**: error reporting UI,
-   bulk-load performance.
+3. **M3 — Persistence** ✅: SQLAlchemy 2.x models
+   (`raw_messages` + `parsed_messages`) in `krx_parser/db/`, Alembic
+   baseline (`alembic/versions/0001_initial.py`) with WAL +
+   foreign_keys pragmas on first SQLite connect. `Repository` layer
+   handles ingest + search by TR code / date range / MEMBER_NUMBER /
+   UNDERLYING_ASSET_CODE. Decimals serialised as JSON strings to
+   preserve precision. 6 repository tests added (40 total passing).
+4. **M4 — Streamlit MVP** ✅: `app/main.py` landing + pages
+   `1_Paste_Upload`, `2_Lookup`, `3_Inspect`, `4_Schemas`. Korean
+   column labels throughout. Mixed-TR-code streams handled via
+   `peek_transaction_code` + `record_length`. Run with
+   `streamlit run app/main.py`; verified headless boot (HTTP 200).
+5. **M5 — Hardening**: KMAPv2 frame-extraction adapter (see §14),
+   error-reporting UI surface, bulk-load performance.
 6. **M6 — Offline release pipeline**: release-tarball build script
    (TBD under `shl/`) that bundles `wheels/`, `requirements.lock`,
    `alembic/`, `shl/`, and the app sources; verified by running

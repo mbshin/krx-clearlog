@@ -13,28 +13,52 @@ milestones; [`spec/messages.md`](./spec/messages.md) and
 - **M1 — Schema capture** ✅ — 11 YAML schemas under
   `krx_parser/schemas/`, validated to 1,200 bytes each.
 - **M2 — Parser** ✅ — `krx_parser.Parser` with repeating-group
-  support, 34 pytest tests passing.
-- M3–M6 — not started.
+  support.
+- **M3 — Persistence** ✅ — SQLAlchemy + Alembic, `Repository`
+  for ingest / search. SQLite file at `data/krx.db` by default.
+- **M4 — Streamlit MVP** ✅ — `app/main.py` + 4 pages (Paste/Upload,
+  Lookup, Inspect, Schemas) with Korean column labels.
+- **M5 — Hardening** — KMAPv2 frame-extraction adapter + bulk-load
+  performance. Not started.
+- **M6 — Offline release pipeline** — not started.
+
+40 pytest tests passing.
 
 ## Layout
 
 ```text
-krx_parser/          # parser package (no UI/DB deps)
+krx_parser/          # parser + persistence package (no UI deps)
   schema.py          # Field / Array / Schema dataclasses
   registry.py        # SchemaRegistry, YAML loader
   parser.py          # Parser.parse(bytes) -> ParsedMessage
   codes/enums.py     # StrEnums for the code sets in spec/codes.md
   schemas/*.yaml     # one file per TR code
+  db/                # SQLAlchemy models, engine, Repository
+  settings.py        # pydantic-settings (KRX_DATABASE_URL, …)
+app/                 # Streamlit UI
+  main.py            # landing page
+  pages/             # 1_Paste_Upload, 2_Lookup, 3_Inspect, 4_Schemas
+alembic/             # migrations; 0001_initial.py is the baseline
 samples/             # drop real KRX log files here (gitignored)
 shl/                 # operator scripts (install.sh / start.sh / stop.sh)
 spec/                # message / code / regulation specs
 tests/               # pytest suite; tests/builder.py is an inverse encoder
 ```
 
+## Running the UI
+
+```sh
+alembic upgrade head                # create SQLite schema (first run)
+streamlit run app/main.py           # launches on localhost:8501
+```
+
+Set `KRX_DATABASE_URL=sqlite:////abs/path/krx.db` to point the app at
+an alternate SQLite file; the default is `sqlite:///data/krx.db`
+relative to the process CWD.
+
 ## Developing
 
-Target Python is 3.11 for parity with the RHEL 8 deployment. Tests
-pass on 3.11+ (no 3.12- or 3.13-specific features).
+Target Python is 3.11 for parity with the RHEL 8 deployment.
 
 ```sh
 python3 -m pytest            # run the test suite

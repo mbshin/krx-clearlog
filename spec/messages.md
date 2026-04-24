@@ -19,7 +19,52 @@ rendered as a link points to the matching section of `codes.md`.
 - **I.F** — implied integer.fractional digit split for `Float` fields.
 - **Array** — for messages with repeating groups, the array size and
   total bytes are noted in the message header.
-- Fields 1–4 are the **shared header** on every message: `MESSAGE_SEQUENCE_NUMBER` (Long, 11), [`TRANSACTION_CODE`](./codes.md#1-transaction-codes-tr-codes) (String, 11), `TRANSMIT_DATE` (String, 8, YYYYMMDD), [`EMSG_COMPLT_YN`](./codes.md#emsg_complt_yn--전문완료여부-all-messages-seq-4) (String, 1, Y/N).
+- Fields 1–4 of each **DATA body** are the body-level shared header:
+  `MESSAGE_SEQUENCE_NUMBER` (Long, 11),
+  [`TRANSACTION_CODE`](./codes.md#1-transaction-codes-tr-codes) (String, 11),
+  `TRANSMIT_DATE` (String, 8, YYYYMMDD),
+  [`EMSG_COMPLT_YN`](./codes.md#emsg_complt_yn--전문완료여부-all-messages-seq-4) (String, 1, Y/N).
+  The DATA body is preceded by the 82-byte KMAPv2 frame header (§0).
+
+---
+
+## 0. KMAPv2 frame header (transport envelope)
+
+Every on-wire message is carried inside a `KMAPv2.0` frame: an 82-byte
+fixed-width ASCII header followed by a DATA block whose layout is
+determined by the TR code (§1 onward). Real log captures (see
+`samples/`) show the frame serialised as
+`KMAPv2.0<msg_len><msg_type><…><data>` — the parser must peel this
+envelope before applying the TR-code schema.
+
+| Seq | Field (KR)                 | Field (EN)                     | Type   | Len | M/O | Notes |
+| --- | -------------------------- | ------------------------------ | ------ | --- | --- | ----- |
+| 1   | 전문유형                   | MESSAGE_KIND                   | String | 8   | M   | Always `KMAPv2.0`. |
+| 2   | 메시지길이                 | MESSAGE_LENGTH                 | Long   | 6   | M   | Byte length of the DATA block (excludes this 82-byte header). Encrypted payloads report the encrypted length. |
+| 3   | 메시지 타입                | MESSAGE_TYPE                   | String | 11  | M   | TR code (`TCSMIH…`). Must match seq 2 of the DATA body. |
+| 4   | 일련번호                   | SEQUENCE_NUMBER                | Long   | 11  | M   | Transport-level sequence; distinct from the DATA body's `MESSAGE_SEQUENCE_NUMBER` even though samples often agree. |
+| 5   | 회원번호                   | MEMBER_NUMBER                  | String | 5   | M   | Originating member. |
+| 6   | 연계시도착 회원사 번호     | CONNECT_RECV_MEMBER_NUMBER     | String | 10  | O   | Blank when not routed via a relay. |
+| 7   | 회신시송신 회원사 번호     | REPLY_SEND_MEMBER_NUMBER       | String | 10  | O   | Blank on outbound/non-reply traffic. |
+| 8   | 전송일시                   | TRANSMIT_DATETIME              | String | 17  | M   | `YYYYMMDDhhmmssSSS` (millisecond precision). Example: `20071221091022328`. |
+| 9   | 데이터 건수                | DATA_COUNT                     | Long   | 3   | M   | Number of logical records packed in DATA (typically `001`). |
+| 10  | 암호화 유무                | ENCRYPTED_YN                   | String | 1   | M   | `Y` / `N`. When `Y` the DATA block is cipher-text; parsers must decrypt before applying the TR schema. |
+
+Total header length = 8 + 6 + 11 + 11 + 5 + 10 + 10 + 17 + 3 + 1 = **82
+bytes**. DATA immediately follows (no separator). A complete on-wire
+frame is therefore `82 + MESSAGE_LENGTH` bytes.
+
+Observed in `samples/`: `[KMAPv2.0001200TCSMIH42101…]` (plain-text,
+1,200-byte body matching our TCSMIH42101 schema) and
+`[KMAPv2.0001624TCSMIH42101…]` (encrypted body, 1,624 bytes after
+padding) — the same logical message before and after
+`TG_DecryptLOG`.
+
+### DATA block
+
+> **트랜잭션코드(TR CODE)별 메시지 — 업무별로 별도 정의.**
+
+Each TR code defines its own DATA layout in §1 onward.
 
 ---
 
