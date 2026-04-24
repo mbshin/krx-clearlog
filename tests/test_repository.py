@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 
 from krx_parser.db import Base, ParseStatus, Repository, create_engine_from_url
 from krx_parser.db.models import ParsedMessageRow, RawMessage
+from krx_parser.frame import parse_frame
 from tests.builder import build_record
+from tests.test_frame import build_header
 
 
 @pytest.fixture()
@@ -133,6 +135,42 @@ def test_search_filters(repo, registry):
         == 1
     )
     assert len(repo.search(transmit_date_from="20260423")) == 2
+
+
+def test_ingest_frame_plaintext_parses(repo, registry):
+    schema = registry.get("TCSMIH42201")
+    data = build_record(schema, fields={
+        "MESSAGE_SEQUENCE_NUMBER": 1,
+        "TRANSACTION_CODE": "TCSMIH42201",
+        "TRANSMIT_DATE": "20260424",
+        "EMSG_COMPLT_YN": "Y",
+        "MEMBER_NUMBER": "M0001",
+    })
+    raw = build_header(tr_code="TCSMIH42201", data_length=len(data), seq=1) + data
+    frame = parse_frame(raw)
+
+    stored = repo.ingest_frame(frame, source="pytest")
+    from krx_parser.db.repository import StoredMessage
+
+    assert isinstance(stored, StoredMessage)
+    assert stored.transaction_code == "TCSMIH42201"
+    assert stored.fields["MEMBER_NUMBER"] == "M0001"
+
+
+def test_ingest_frame_encrypted_parks_as_error(repo, session):
+    data = b"\x00" * 1200
+    raw = build_header(tr_code="TCSMIH42201", data_length=1200, encrypted="Y") + data
+    frame = parse_frame(raw)
+
+    result = repo.ingest_frame(frame, source="pytest")
+    assert isinstance(result, RawMessage)
+    assert result.parse_status == ParseStatus.ERROR.value
+    assert "encrypted" in (result.error_detail or "")
+    # Full envelope + DATA preserved for forensic decryption later.
+    assert result.payload == frame.raw
+    assert session.scalar(
+        sa.select(sa.func.count(ParsedMessageRow.id))
+    ) == 0
 
 
 def test_count_by_transaction_code(repo, registry):

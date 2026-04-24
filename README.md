@@ -18,11 +18,14 @@ milestones; [`spec/messages.md`](./spec/messages.md) and
   for ingest / search. SQLite file at `data/krx.db` by default.
 - **M4 — Streamlit MVP** ✅ — `app/main.py` + 4 pages (Paste/Upload,
   Lookup, Inspect, Schemas) with Korean column labels.
-- **M5 — Hardening** — KMAPv2 frame-extraction adapter + bulk-load
-  performance. Not started.
+- **M5 — Hardening** 🟡 partial — KMAPv2 frame extractor shipped
+  (`krx_parser/frame.py` + Paste/Upload auto-detect). Decryption
+  routine and bulk-load performance still outstanding (all TCSMIH
+  frames in the real samples are `ENCRYPTED_YN=Y`; see
+  `spec/design.md` §14).
 - **M6 — Offline release pipeline** — not started.
 
-40 pytest tests passing.
+53 pytest tests passing.
 
 ## Layout
 

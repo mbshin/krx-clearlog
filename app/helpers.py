@@ -14,6 +14,7 @@ import streamlit as st
 from sqlalchemy.orm import Session
 
 from krx_parser.db import Base, Repository, create_engine_from_url, get_sessionmaker
+from krx_parser.frame import MARKER, KmapFrame, iter_frames
 from krx_parser.parser import Parser
 from krx_parser.registry import SchemaRegistry, load_default_registry
 from krx_parser.schema import Array, Field, Schema
@@ -86,6 +87,26 @@ def iter_records(payload: bytes, parser: Parser | None = None) -> Iterator[bytes
             break
         yield payload[i : i + rec_len]
         i += rec_len
+
+
+def looks_like_kmap_stream(payload: bytes) -> bool:
+    """Heuristic: input contains at least one KMAPv2 frame marker."""
+    return MARKER in payload
+
+
+def extract(
+    payload: bytes,
+) -> tuple[list[KmapFrame], list[bytes]]:
+    """Return (frames, loose_records). Exactly one of the two will be non-empty.
+
+    If the input looks like a KMAPv2 stream (e.g. an app log with
+    embedded frames), we scan for frames and ignore bytes between
+    them. Otherwise we treat the input as already-extracted records
+    and slice them by TR-code-derived lengths.
+    """
+    if looks_like_kmap_stream(payload):
+        return list(iter_frames(payload)), []
+    return [], list(iter_records(payload))
 
 
 def sanitize_paste(text: str) -> bytes:

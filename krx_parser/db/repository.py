@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from krx_parser.db.models import ParsedMessageRow, ParseStatus, RawMessage
 from krx_parser.db.serialize import body_from_json, body_to_json
 from krx_parser.exceptions import KrxParserError
+from krx_parser.frame import KmapFrame
 from krx_parser.parser import ParsedMessage, Parser
 from krx_parser.registry import SchemaRegistry
 
@@ -93,6 +94,36 @@ class Repository:
 
     def ingest_many(self, payloads: Iterable[bytes], *, source: str) -> list[object]:
         return [self.ingest(p, source=source) for p in payloads]
+
+    def ingest_frame(
+        self, frame: KmapFrame, *, source: str
+    ) -> StoredMessage | RawMessage:
+        """Persist a KMAPv2 frame.
+
+        Encrypted frames are stored verbatim with `parse_status='error'`
+        and `error_detail='encrypted (ENCRYPTED_YN=Y)'` — decryption is
+        out of scope until key material is available. Plain-text frames
+        are forwarded to `ingest()` and parsed normally.
+        """
+        if frame.header.is_encrypted:
+            raw = RawMessage(
+                source=source,
+                payload=frame.raw,
+                parse_status=ParseStatus.ERROR.value,
+                error_detail=(
+                    f"encrypted (ENCRYPTED_YN=Y); tr_code={frame.header.message_type}"
+                    f"; seq={frame.header.sequence_number}"
+                ),
+            )
+            self.session.add(raw)
+            self.session.flush()
+            return raw
+        return self.ingest(frame.data, source=source)
+
+    def ingest_frames(
+        self, frames: Iterable[KmapFrame], *, source: str
+    ) -> list[object]:
+        return [self.ingest_frame(f, source=source) for f in frames]
 
     # --- reads --------------------------------------------------------
 

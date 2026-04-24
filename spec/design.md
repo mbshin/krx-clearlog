@@ -430,22 +430,27 @@ Environment variables:
 
 ## 14. Open Questions
 
-- **Frame extraction adapter** — `.log.gz` files under `samples/` are
-  the producer's stdout/stderr stream; KRX records are embedded
-  inside `[KMAPv2.0<len><…><data>]` frames whose 82-byte header is
-  now documented in [`messages.md` §0](./messages.md#0-kmapv2-frame-header-transport-envelope).
-  The parser currently accepts a clean DATA slice (1,200 bytes for
-  the 증거금 family); a log-line scanner that locates frames, strips
-  the envelope, and — when `ENCRYPTED_YN = Y` — decrypts the DATA
-  block still needs to be built. Decryption routine and key material
-  are external (see `TG_DecryptLOG` in sample logs). Scope this into
-  the ingestion adapter, not the core parser.
-- **TR-code scope** — the samples contain heavy volumes of codes
-  outside our 11 (e.g. `TCSMIH26901` 850k, `TCSMIH10501` / `10401`
-  500k each, `TCSMIH23101` 2.8k). `spec/messages.md` only defines
-  the 증거금 messages (TCSMIH41xxx–43xxx); confirm with the
-  customer whether the non-증거금 codes are in-scope for v1 or
-  whether the parser should just log `UnknownMessageType` and skip.
+- **Frame decryption** — `krx_parser/frame.py` now extracts KMAPv2
+  frames from arbitrary byte streams (verified against
+  `samples/TR_001`: 37,713 frames extracted in ~0.1 s, ~370k/s).
+  **Every TCSMIH frame observed in that sample has `ENCRYPTED_YN = Y`**
+  (TCSMIH42101 ×454, TCSMIH42401 ×74, TCSMIH42201 ×3, TCSMIH42301 ×2
+  — all cipher-text). Without the decryption routine / key material
+  (produced by `TG_DecryptLOG` in the originating process)
+  `Repository.ingest_frame` persists encrypted frames to
+  `raw_messages` with `parse_status='error'` and `error_detail`
+  carrying the TR code + transport sequence number. Need Koscom to
+  provide the decrypt primitive before we can parse anything from
+  the real logs end-to-end.
+- **TR-code scope** — the frame scan surfaced codes outside our 11:
+  the samples include `SCHHEQ00000` ×15,702 and `SCHHER00000` ×10,468
+  (schedule/event messages, all plaintext) plus `TCSMIH26501`/`26201`/
+  `20501`/`20301`/`70301`/`20701` ranging 4k–100 frames each (all
+  encrypted). `spec/messages.md` only defines the 증거금 messages
+  (TCSMIH41xxx–43xxx); confirm with the customer whether any of
+  these other families are in scope for v1. Our parser already
+  rejects them with `UnknownMessageType` — the frame extractor
+  stores them with the same error marker.
 - **Float sign byte** — the parser currently interprets the single
   unaccounted byte in every Float field (e.g., length 11 vs `7.3`;
   length 22 vs `18.3`; length 10 vs `7.2`) as an optional leading
@@ -484,8 +489,17 @@ Environment variables:
    column labels throughout. Mixed-TR-code streams handled via
    `peek_transaction_code` + `record_length`. Run with
    `streamlit run app/main.py`; verified headless boot (HTTP 200).
-5. **M5 — Hardening**: KMAPv2 frame-extraction adapter (see §14),
-   error-reporting UI surface, bulk-load performance.
+5. **M5 — Hardening** 🟡 partial:
+   - ✅ KMAPv2 frame extractor (`krx_parser/frame.py`) with
+     `parse_header` / `parse_frame` / `iter_frames` scanner; 11 new
+     tests; verified against `samples/TR_001` at ~370k frames/s.
+   - ✅ `Repository.ingest_frame` + `ingest_frames`: encrypted frames
+     land in `raw_messages` with explicit `error_detail`.
+   - ✅ Paste/Upload page auto-detects KMAPv2 streams vs bare record
+     bytes and shows a per-TR-code breakdown before save.
+   - 🔲 **Decryption routine** — blocker on external key/algo
+     material; without it the real samples are opaque (see §14).
+   - 🔲 Bulk-load performance on the 1.6 GB TR_002 sample.
 6. **M6 — Offline release pipeline**: release-tarball build script
    (TBD under `shl/`) that bundles `wheels/`, `requirements.lock`,
    `alembic/`, `shl/`, and the app sources; verified by running
