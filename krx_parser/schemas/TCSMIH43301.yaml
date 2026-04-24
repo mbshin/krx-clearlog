@@ -1,0 +1,177 @@
+transaction_code: TCSMIH43301
+description: 장중추가증거금 — 부과내역 통보 (증권시장)
+market: equity
+encoding: euc-kr
+record_length: 1200
+
+# No repeating groups.
+# Source reuses IMPOST_BAS_TM / IMPOST_BAS_TM_TOT_DEPO_AMT for the T and T+1
+# instants; disambiguated here with _T and _T_PLUS_1 suffixes.
+
+layout:
+  - kind: field
+    name: MESSAGE_SEQUENCE_NUMBER
+    kor_name: 메세지일련번호
+    kor_description: 메시지 일련번호
+    type: Long
+    length: 11
+  - kind: field
+    name: TRANSACTION_CODE
+    kor_name: 트랜잭션코드
+    kor_description: 거래 코드 (TCSMIH43301)
+    type: String
+    length: 11
+  - kind: field
+    name: TRANSMIT_DATE
+    kor_name: 전송일자
+    kor_description: 전송일자 YYYYMMDD
+    type: String
+    length: 8
+  - kind: field
+    name: EMSG_COMPLT_YN
+    kor_name: 전문완료여부
+    kor_description: Y=전송완료, N=전송중
+    type: String
+    length: 1
+  - kind: field
+    name: RND_NO
+    kor_name: 회차번호
+    kor_description: 회차번호 (sequential 아님)
+    type: Long
+    length: 4
+  - kind: field
+    name: RND_TM
+    kor_name: 회차시각
+    kor_description: HHMMSSsss
+    type: String
+    length: 9
+  - kind: field
+    name: CLEARING_SETTLEMENT_MARKET_IDENTIFICATION
+    kor_name: 청산결제시장ID
+    kor_description: SPT=증권시장
+    type: String
+    length: 3
+  - kind: field
+    name: MEMBER_NUMBER
+    kor_name: 회원번호
+    kor_description: 회원번호
+    type: String
+    length: 5
+  - kind: field
+    name: TRST_NET_RISK_MRGN
+    kor_name: 위탁순위험증거금
+    kor_description: 위탁 순위험증거금
+    type: Float
+    length: 23
+    int_digits: 19
+    frac_digits: 3
+  - kind: field
+    name: TRST_VARI_MRGN
+    kor_name: 위탁변동증거금
+    kor_description: 위탁 변동증거금
+    type: Float
+    length: 23
+    int_digits: 19
+    frac_digits: 3
+  - kind: field
+    name: TRST_REQVAL
+    kor_name: 위탁필요액
+    kor_description: 위탁거래증거금 소요액; ≤ 0
+    type: Float
+    length: 28
+    int_digits: 24
+    frac_digits: 3
+  - kind: field
+    name: PRINC_NET_RISK_MRGN
+    kor_name: 자기순위험증거금
+    kor_description: 자기 순위험증거금
+    type: Float
+    length: 23
+    int_digits: 19
+    frac_digits: 3
+  - kind: field
+    name: PRINC_VARI_MRGN
+    kor_name: 자기변동증거금
+    kor_description: 자기 변동증거금
+    type: Float
+    length: 23
+    int_digits: 19
+    frac_digits: 3
+  - kind: field
+    name: PRINC_REQVAL
+    kor_name: 자기필요액
+    kor_description: 자기거래증거금 소요액; ≤ 0
+    type: Float
+    length: 28
+    int_digits: 24
+    frac_digits: 3
+  - kind: field
+    name: REQVAL_AGG
+    kor_name: 필요액합계
+    kor_description: 위탁 + 자기; ≤ 0; 단위 원
+    type: Float
+    length: 28
+    int_digits: 24
+    frac_digits: 3
+  - kind: field
+    name: IMPOST_BAS_TM_T
+    kor_name: 부과산출기준시각(T시)
+    kor_description: HHMMSSsss (T시)
+    type: String
+    length: 9
+  - kind: field
+    name: IMPOST_BAS_TM_TOT_DEPO_AMT_T
+    kor_name: 부과산출기준시각_총예탁금액(T시)
+    kor_description: 단위 원 (T시)
+    type: Float
+    length: 22
+    int_digits: 18
+    frac_digits: 3
+  - kind: field
+    name: DEPO_VAL_CMP_IM_REQVAL_RTO
+    kor_name: 예탁액대비장중추가증거금필요액비율
+    kor_description: 필요액합계/총예탁금액; 단위 %; 0의 자리에서 절사
+    type: Float
+    length: 10
+    int_digits: 7
+    frac_digits: 2
+  - kind: field
+    name: IMPOST_BAS_TM_T_PLUS_1
+    kor_name: 부과기준시각(T+1시)
+    kor_description: HHMMSSsss (T+1시)
+    type: String
+    length: 9
+  - kind: field
+    name: IMPOST_BAS_TM_TOT_DEPO_AMT_T_PLUS_1
+    kor_name: 부과기준시각_총예탁금액(T+1시)
+    kor_description: 단위 원 (T+1시)
+    type: Float
+    length: 22
+    int_digits: 18
+    frac_digits: 3
+  - kind: field
+    name: IM
+    kor_name: 장중추가증거금
+    kor_description: 납부 대상 금액; 필요액합계(T) + 예탁금액(T+1) < 0; 단위 원
+    type: Float
+    length: 22
+    int_digits: 18
+    frac_digits: 3
+  - kind: field
+    name: FINAL_TM
+    kor_name: 확정시각
+    kor_description: HHMMSSsss 부과확정시각
+    type: String
+    length: 9
+  - kind: field
+    name: PAY_DEADLINE
+    kor_name: 납부시한
+    kor_description: HHMMSSsss 확정시각 + 2시간
+    type: String
+    length: 9
+  - kind: field
+    name: FILLER_VALUE
+    kor_name: 필러값
+    kor_description: 예비 영역
+    type: String
+    length: 860

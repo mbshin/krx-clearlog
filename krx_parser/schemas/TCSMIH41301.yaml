@@ -1,0 +1,125 @@
+transaction_code: TCSMIH41301
+description: 장중추가증거금 — 기초자산변동률 부과요건 (파생시장)
+market: derivatives
+encoding: euc-kr
+record_length: 1200
+
+# No repeating groups. 17 fixed fields, ending with 1062-byte filler.
+# Float/numeric-formatted String fields carry an extra leading sign
+# byte beyond int_digits+frac_digits (e.g., length=11 with 7.3 split).
+
+layout:
+  - kind: field
+    name: MESSAGE_SEQUENCE_NUMBER
+    kor_name: 메세지일련번호
+    kor_description: 메시지 일련번호
+    type: Long
+    length: 11
+  - kind: field
+    name: TRANSACTION_CODE
+    kor_name: 트랜잭션코드
+    kor_description: 거래 코드 (TCSMIH41301)
+    type: String
+    length: 11
+  - kind: field
+    name: TRANSMIT_DATE
+    kor_name: 전송일자
+    kor_description: 전송일자 YYYYMMDD
+    type: String
+    length: 8
+  - kind: field
+    name: EMSG_COMPLT_YN
+    kor_name: 전문완료여부
+    kor_description: Y=전문완료, N=전송중
+    type: String
+    length: 1
+  - kind: field
+    name: RND_NO
+    kor_name: 회차번호
+    kor_description: 1회차=부과용산출+해제용산출; sequential 아님
+    type: Long
+    length: 4
+  - kind: field
+    name: RND_TM
+    kor_name: 회차시각
+    kor_description: HHMMSSsss
+    type: String
+    length: 9
+  - kind: field
+    name: IM_CALC_BAS_TM
+    kor_name: 데이터산출기준시각
+    kor_description: HHMMSSsss
+    type: String
+    length: 9
+  - kind: field
+    name: MRGN_KIND_TP_CD
+    kor_name: 증거금종류구분코드
+    kor_description: 1=거래증거금, 2=위탁증거금
+    type: String
+    length: 1
+  - kind: field
+    name: UNDERLYING_ASSET_CODE
+    kor_name: 기초자산코드
+    kor_description: ISIN 체계의 대상물코드
+    type: String
+    length: 2
+  - kind: field
+    name: CLSPRC
+    kor_name: 종가
+    kor_description: 산출기준시각 기초자산 가격
+    type: Float
+    length: 11
+    int_digits: 7
+    frac_digits: 3
+  - kind: field
+    name: PREVDD_ADJ_CLSPRC
+    kor_name: 전일조정종가
+    kor_description: 조정 있으면 전일조정종가, 없으면 전일종가
+    type: Float
+    length: 18
+    int_digits: 9
+    frac_digits: 8
+  - kind: field
+    name: PRC_CHG_RT
+    kor_name: 가격변동률
+    kor_description: "|(산출시점 종가 − 전일조정종가)/전일조정종가|, 단위 %"
+    type: Float
+    length: 13
+    int_digits: 6
+    frac_digits: 6
+  - kind: field
+    name: PRC_CHG_MRGN_RT
+    kor_name: 가격변동증거금률
+    kor_description: 거래증거금=거래증거금률 / 위탁증거금=유지증거금률, 단위 %
+    type: String
+    length: 13
+    int_digits: 6
+    frac_digits: 6
+  - kind: field
+    name: PRC_CHG_RT_CMP_MRGN_RT_RTO
+    kor_name: 가격변동률대비증거금률비율
+    kor_description: 가격변동률 / 가격변동증거금률
+    type: String
+    length: 13
+    int_digits: 6
+    frac_digits: 6
+  - kind: field
+    name: PRC_CHG_RT_CMP_MRGN_RT_BAS_RTO
+    kor_name: 가격변동률대비증거금률기준비율
+    kor_description: 기준비율; 이 값 이상이면 부과요건 만족
+    type: String
+    length: 13
+    int_digits: 6
+    frac_digits: 6
+  - kind: field
+    name: IM_PRC_CHG_BAS_SATISFACT_YN
+    kor_name: 장중추가증거금가격변동기준충족여부
+    kor_description: Y=충족, N=불충족
+    type: String
+    length: 1
+  - kind: field
+    name: FILLER_VALUE
+    kor_name: 필러값
+    kor_description: 예비 영역
+    type: String
+    length: 1062

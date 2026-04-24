@@ -400,14 +400,32 @@ Environment variables:
 
 ## 14. Open Questions
 
-- **Record terminator** — are records newline-terminated,
-  length-prefixed, or pure fixed-length back-to-back?
-- **TCSMIH41301 seq 10 `CLSPRC`** — declared length 11 with `7.3`
-  split; 1 byte unaccounted. Confirm via sample.
+- **Record framing (from sample inspection)** — the `.log.gz` files
+  under `samples/` are the producer process's stdout/stderr stream
+  (syslog-style lines like
+  `HH:MM:SS.uuuuuu LibProcEnv.c :InitExeArg :0293] I START === …`),
+  not raw record streams. TCSMIH records are embedded inside log
+  lines wrapped as `[KMAPv2.<7-digit-length><envelope-bytes><record>]`
+  (observed lengths include `0001200` and `0001624`). Two concerns:
+  1. **Ingestion adapter** — the parser currently accepts a clean
+     1,200-byte slice; a log-to-record extractor that recognises the
+     `KMAPv2.` frame header and strips the envelope still needs to be
+     built (belongs in M3/M4, not M2).
+  2. **TR-code scope** — the samples contain heavy volumes of codes
+     outside our 11 (e.g. `TCSMIH26901` 850k, `TCSMIH10501` / `10401`
+     500k each, `TCSMIH23101` 2.8k). `spec/messages.md` only defines
+     the 증거금 messages (TCSMIH41xxx–43xxx); confirm with the
+     customer whether the non-증거금 codes are in-scope for v1 or
+     whether the parser should just log `UnknownMessageType` and skip.
+- **Float sign byte** — the parser currently interprets the single
+  unaccounted byte in every Float field (e.g., length 11 vs `7.3`;
+  length 22 vs `18.3`; length 10 vs `7.2`) as an optional leading
+  sign (`' '`, `'+'`, `'0'`, `'-'`). Consistent across all 11 TR
+  codes. Confirm against a live record before treating this as fact.
 - **TCSMIH43601 seq 2** — source prints `TCSMIH43501`; likely a typo
-  for `TCSMIH43601`. Confirm.
+  for `TCSMIH43601`. Confirm with a sample.
 - **TCSMIH43501 seq 12/13** — source reuses seq numbers; treated as
-  seq 14/15 in schema. Confirm.
+  seq 14/15 in schema. Confirm with a sample.
 - **Retention policy** for `raw_messages.payload` (keep forever vs TTL).
 - **RHEL 8 target Python** — confirm 3.11 is available via the
   customer's internal repo, or whether a pre-built Python runtime must
@@ -415,10 +433,16 @@ Environment variables:
 
 ## 15. Milestones
 
-1. **M1 — Schema capture**: finalize all 11 YAML layouts with Korean
-   descriptions per field; resolve open questions; produce fixture logs.
-2. **M2 — Parser**: dispatch on `TRANSACTION_CODE`, support repeating
-   groups, unit tests against fixtures.
+1. **M1 — Schema capture** ✅: all 11 YAML layouts under
+   `krx_parser/schemas/` with Korean field names + descriptions, each
+   validated to sum to 1,200 bytes.
+2. **M2 — Parser** ✅: `krx_parser.Parser` dispatches on
+   `TRANSACTION_CODE`, decodes Long / String / Float (with optional
+   sign byte) and repeating groups, raises `UnknownMessageType` for
+   unregistered codes. 34 pytest tests cover round-trip, negative
+   values, unknown codes, and short input. Fixtures are built
+   programmatically via `tests/builder.py` until live-record framing
+   is resolved (see §14).
 3. **M3 — Persistence**: SQLAlchemy models, Alembic baseline,
    repository round-trip tests.
 4. **M4 — Streamlit MVP**: Paste/Upload + Lookup pages end-to-end with

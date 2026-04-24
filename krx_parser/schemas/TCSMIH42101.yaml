@@ -1,0 +1,71 @@
+transaction_code: TCSMIH42101
+description: 거래증거금 — 종목별 증거금률 (증권시장)
+market: equity
+encoding: euc-kr
+record_length: 1200
+
+# Repeating group (issues): 16 × 70 bytes = 1,120 bytes.
+# Header (31 B) + array (1120 B) + filler (49 B) = 1,200.
+
+layout:
+  - kind: field
+    name: MESSAGE_SEQUENCE_NUMBER
+    kor_name: 메세지일련번호
+    kor_description: 메시지 일련번호
+    type: Long
+    length: 11
+  - kind: field
+    name: TRANSACTION_CODE
+    kor_name: 트랜잭션코드
+    kor_description: 거래 코드 (TCSMIH42101)
+    type: String
+    length: 11
+  - kind: field
+    name: TRANSMIT_DATE
+    kor_name: 전송일자
+    kor_description: 전송일자 YYYYMMDD; 생성일자=적용일 (적용일 15시 송신)
+    type: String
+    length: 8
+  - kind: field
+    name: EMSG_COMPLT_YN
+    kor_name: 전문완료여부
+    kor_description: Y=전송완료, N=전송중
+    type: String
+    length: 1
+  - kind: array
+    name: issues
+    count: 16
+    fields:
+      - name: MARKET_IDENTIFICATION
+        kor_name: 시장ID
+        kor_description: KRX 차세대 상품 ID체계 — 시장ID
+        type: String
+        length: 3
+      - name: SECURITIES_GROUP_IDENTIFICATION
+        kor_name: 증권그룹ID
+        kor_description: KRX 차세대 상품 ID체계 — 증권그룹ID
+        type: String
+        length: 2
+      - name: ISSUE_CODE
+        kor_name: 종목코드
+        kor_description: 종목코드
+        type: String
+        length: 12
+      - name: ISU_KOR_ABBRV
+        kor_name: 종목한글약명
+        kor_description: 종목 한글 약명 (EUC-KR)
+        type: String
+        length: 40
+      - name: TRD_MRGN_RT
+        kor_name: 거래증거금률
+        kor_description: 단위 %; source에서 String 선언이나 numeric (6.6)
+        type: String
+        length: 13
+        int_digits: 6
+        frac_digits: 6
+  - kind: field
+    name: FILLER_VALUE
+    kor_name: 필러값
+    kor_description: 예비 영역
+    type: String
+    length: 49

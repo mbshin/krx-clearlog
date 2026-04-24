@@ -2,6 +2,9 @@
 
 Field-level layouts for every message type the parser supports.
 Architecture and parsing rules live in [`design.md`](./design.md).
+Enumerated code-value sets for fields that reference them live in
+[`codes.md`](./codes.md); in the tables below, an English field name
+rendered as a link points to the matching section of `codes.md`.
 
 ## Conventions
 
@@ -16,7 +19,7 @@ Architecture and parsing rules live in [`design.md`](./design.md).
 - **I.F** — implied integer.fractional digit split for `Float` fields.
 - **Array** — for messages with repeating groups, the array size and
   total bytes are noted in the message header.
-- Fields 1–4 are the **shared header** on every message: `MESSAGE_SEQUENCE_NUMBER` (Long, 11), `TRANSACTION_CODE` (String, 11), `TRANSMIT_DATE` (String, 8, YYYYMMDD), `EMSG_COMPLT_YN` (String, 1, Y/N).
+- Fields 1–4 are the **shared header** on every message: `MESSAGE_SEQUENCE_NUMBER` (Long, 11), [`TRANSACTION_CODE`](./codes.md#1-transaction-codes-tr-codes) (String, 11), `TRANSMIT_DATE` (String, 8, YYYYMMDD), [`EMSG_COMPLT_YN`](./codes.md#emsg_complt_yn--전문완료여부-all-messages-seq-4) (String, 1, Y/N).
 
 ---
 
@@ -25,21 +28,21 @@ Architecture and parsing rules live in [`design.md`](./design.md).
 | Seq | Field (KR)                           | Field (EN)                         | Type   | Len   | I.F  | Notes |
 | --- | ------------------------------------ | ---------------------------------- | ------ | ----- | ---- | ----- |
 | 1   | 메세지일련번호                       | MESSAGE_SEQUENCE_NUMBER            | Long   | 11    |      | |
-| 2   | 트랜잭션코드                         | TRANSACTION_CODE                   | String | 11    |      | `TCSMIH41301` |
+| 2   | 트랜잭션코드                         | [TRANSACTION_CODE](./codes.md#1-transaction-codes-tr-codes) | String | 11    |      | `TCSMIH41301` |
 | 3   | 전송일자                             | TRANSMIT_DATE                      | String | 8     |      | `YYYYMMDD` |
-| 4   | 전문완료여부                         | EMSG_COMPLT_YN                     | String | 1     |      | `Y`:전문완료, `N`:전송중 |
+| 4   | 전문완료여부                         | [EMSG_COMPLT_YN](./codes.md#emsg_complt_yn--전문완료여부-all-messages-seq-4) | String | 1     |      | `Y`:전문완료, `N`:전송중 |
 | 5   | 회차번호                             | RND_NO                             | Long   | 4     |      | 1회차 = 부과용산출 + 해제용산출; not sequential |
 | 6   | 회차시각                             | RND_TM                             | String | 9     |      | `HHMMSSsss` |
 | 7   | 데이터산출기준시각                   | IM_CALC_BAS_TM                     | String | 9     |      | `HHMMSSsss` |
-| 8   | 증거금종류구분코드                   | MRGN_KIND_TP_CD                    | String | 1     |      | `1`:거래증거금, `2`:위탁증거금 |
-| 9   | 기초자산코드                         | UNDERLYING_ASSET_CODE              | String | 2     |      | ISIN 체계의 대상물코드 |
+| 8   | 증거금종류구분코드                   | [MRGN_KIND_TP_CD](./codes.md#3-mrgn_kind_tp_cd--증거금종류구분코드) | String | 1     |      | `1`:거래증거금, `2`:위탁증거금 |
+| 9   | 기초자산코드                         | [UNDERLYING_ASSET_CODE](./codes.md#7-external-code-sets-referenced-not-enumerated) | String | 2     |      | ISIN 체계의 대상물코드 |
 | 10  | 종가                                 | CLSPRC                             | Float  | 11    | 7.3  | 산출기준시각 기초자산 가격 (3 byte unaccounted — see §Issues) |
 | 11  | 전일조정종가                         | PREVDD_ADJ_CLSPRC                  | Float  | 18    | 9.8  | 조정 있으면 전일조정종가, 없으면 전일종가 |
 | 12  | 가격변동률                           | PRC_CHG_RT                         | Float  | 13    | 6.6  | `|(산출시점 종가 − 전일조정종가)/전일조정종가|`, 단위 % |
 | 13  | 가격변동증거금률                     | PRC_CHG_MRGN_RT                    | String | 13    | 6.6  | 거래증거금=거래증거금률 / 위탁증거금=유지증거금률, 단위 % |
 | 14  | 가격변동률대비증거금률비율           | PRC_CHG_RT_CMP_MRGN_RT_RTO         | String | 13    | 6.6  | 가격변동률/가격변동증거금률 |
 | 15  | 가격변동률대비증거금률기준비율       | PRC_CHG_RT_CMP_MRGN_RT_BAS_RTO     | String | 13    | 6.6  | 기준비율; 비율이 이 값 이상이면 부과요건 만족 |
-| 16  | 장중추가증거금가격변동기준충족여부   | IM_PRC_CHG_BAS_SATISFACT_YN        | String | 1     |      | `Y`:충족, `N`:불충족 |
+| 16  | 장중추가증거금가격변동기준충족여부   | [IM_PRC_CHG_BAS_SATISFACT_YN](./codes.md#im_prc_chg_bas_satisfact_yn--장중추가증거금-가격변동기준-충족여부) | String | 1     |      | `Y`:충족, `N`:불충족 |
 | 17  | 필러값                               | FILLER_VALUE                       | String | 1,062 |      | Padding |
 
 ---
@@ -52,11 +55,11 @@ Architecture and parsing rules live in [`design.md`](./design.md).
 | Seq | Field (KR)          | Field (EN)                       | Type   | Len | I.F | Notes |
 | --- | ------------------- | -------------------------------- | ------ | --- | --- | ----- |
 | 1   | 메세지일련번호      | MESSAGE_SEQUENCE_NUMBER          | Long   | 11  |     | |
-| 2   | 트랜잭션코드        | TRANSACTION_CODE                 | String | 11  |     | `TCSMIH42101` |
+| 2   | 트랜잭션코드        | [TRANSACTION_CODE](./codes.md#1-transaction-codes-tr-codes) | String | 11  |     | `TCSMIH42101` |
 | 3   | 전송일자            | TRANSMIT_DATE                    | String | 8   |     | `YYYYMMDD`; 생성일자 = 적용일 (적용일 15시 송신) |
-| 4   | 전문완료여부        | EMSG_COMPLT_YN                   | String | 1   |     | `Y`:전송완료, `N`:전송중 |
-| 5   | 시장ID              | MARKET_IDENTIFICATION            | String | 3   |     | KRX 차세대 상품 ID체계 |
-| 6   | 증권그룹ID          | SECURITIES_GROUP_IDENTIFICATION  | String | 2   |     | KRX 차세대 상품 ID체계 |
+| 4   | 전문완료여부        | [EMSG_COMPLT_YN](./codes.md#emsg_complt_yn--전문완료여부-all-messages-seq-4) | String | 1   |     | `Y`:전송완료, `N`:전송중 |
+| 5   | 시장ID              | [MARKET_IDENTIFICATION](./codes.md#7-external-code-sets-referenced-not-enumerated) | String | 3   |     | KRX 차세대 상품 ID체계 |
+| 6   | 증권그룹ID          | [SECURITIES_GROUP_IDENTIFICATION](./codes.md#7-external-code-sets-referenced-not-enumerated) | String | 2   |     | KRX 차세대 상품 ID체계 |
 | 7   | 종목코드            | ISSUE_CODE                       | String | 12  |     | |
 | 8   | 종목한글약명        | ISU_KOR_ABBRV                    | String | 40  |     | EUC-KR |
 | 9   | 거래증거금률        | TRD_MRGN_RT                      | String | 13  | 6.6 | 단위 %; stored numeric but declared String in source |
@@ -69,12 +72,12 @@ Architecture and parsing rules live in [`design.md`](./design.md).
 | Seq | Field (KR)               | Field (EN)                             | Type   | Len   | I.F  | Notes |
 | --- | ------------------------ | -------------------------------------- | ------ | ----- | ---- | ----- |
 | 1   | 메세지일련번호           | MESSAGE_SEQUENCE_NUMBER                | Long   | 11    |      | |
-| 2   | 트랜잭션코드             | TRANSACTION_CODE                       | String | 11    |      | `TCSMIH42201` |
+| 2   | 트랜잭션코드             | [TRANSACTION_CODE](./codes.md#1-transaction-codes-tr-codes) | String | 11    |      | `TCSMIH42201` |
 | 3   | 전송일자                 | TRANSMIT_DATE                          | String | 8     |      | `YYYYMMDD` |
-| 4   | 전문완료여부             | EMSG_COMPLT_YN                         | String | 1     |      | `Y`/`N` |
+| 4   | 전문완료여부             | [EMSG_COMPLT_YN](./codes.md#emsg_complt_yn--전문완료여부-all-messages-seq-4) | String | 1     |      | `Y`/`N` |
 | 5   | 회원번호                 | MEMBER_NUMBER                          | String | 5     |      | |
 | 6   | 거래전문회원번호         | NON_CLEARING_MEMBER_NUMBER             | String | 5     |      | |
-| 7   | 위탁자기통합구분코드     | TRUST_PRINCIPAL_INTEGRATION_TYPE_CODE  | String | 2     |      | `10`:위탁, `20`:자기 |
+| 7   | 위탁자기통합구분코드     | [TRUST_PRINCIPAL_INTEGRATION_TYPE_CODE](./codes.md#4-trust_principal_integration_type_code--위탁자기통합구분코드)  | String | 2     |      | `10`:위탁, `20`:자기 |
 | 8   | 거래증거금소요액         | TRADING_MARGIN_REQUIRED_VALUE          | Float  | 22    | 18.3 | 단위 원 |
 | 9   | 현금성자산납부소요액     | CASHABLE_ASSET_PAY_REQUIRED_VALUE      | Float  | 22    | 18.3 | 소요액 × (1 − 비현금성자산 납입한도비율) |
 | 10  | 필러값                   | FILLER_VALUE                           | String | 1,113 |      | Padding |
@@ -86,20 +89,20 @@ Architecture and parsing rules live in [`design.md`](./design.md).
 | Seq | Field (KR)                             | Field (EN)                                              | Type   | Len | I.F  | Notes |
 | --- | -------------------------------------- | ------------------------------------------------------- | ------ | --- | ---- | ----- |
 | 1   | 메세지일련번호                         | MESSAGE_SEQUENCE_NUMBER                                 | Long   | 11  |      | |
-| 2   | 트랜잭션코드                           | TRANSACTION_CODE                                        | String | 11  |      | `TCSMIH42301` |
+| 2   | 트랜잭션코드                           | [TRANSACTION_CODE](./codes.md#1-transaction-codes-tr-codes) | String | 11  |      | `TCSMIH42301` |
 | 3   | 전송일자                               | TRANSMIT_DATE                                           | String | 8   |      | `YYYYMMDD` |
-| 4   | 전문완료여부                           | EMSG_COMPLT_YN                                          | String | 1   |      | `Y`/`N` |
+| 4   | 전문완료여부                           | [EMSG_COMPLT_YN](./codes.md#emsg_complt_yn--전문완료여부-all-messages-seq-4) | String | 1   |      | `Y`/`N` |
 | 5   | 회원번호                               | MEMBER_NUMBER                                           | String | 5   |      | |
 | 6   | 전전일거래증거금소요액                 | BEFORE_PREVIOUS_DAY_TRADING_MARGIN_REQUIRED_VALUE       | Float  | 22  | 18.3 | 단위 원; T−2 거래분 |
 | 7   | 전일거래증거금소요액                   | PREVDD_TRADING_MARGIN_REQUIRED_VALUE                    | Float  | 22  | 18.3 | 단위 원; T−1 거래분 |
 | 8   | 거래증거금소요액                       | TRADING_MARGIN_REQUIRED_VALUE                           | Float  | 22  | 18.3 | 단위 원; T−1 + T−2 |
 | 9   | 인출제한금액                           | WITHDRAWAL_LIMIT_AMOUNT                                 | Float  | 22  | 18.3 | 단위 원; 08:00 시점 |
 | 10  | 거래증거금평가금액                     | TRADING_MARGIN_VALUATION                                | Float  | 22  | 18.3 | 단위 원 |
-| 11  | 과부족구분코드                         | OVRES_SHORTS_TYPE_CODE                                  | String | 1   |      | `1`:초과, `2`:부족, `3`:일치 |
+| 11  | 과부족구분코드                         | [OVRES_SHORTS_TYPE_CODE](./codes.md#ovres_shorts_type_code--tcsmih42301-seq-11-거래증거금-과부족) | String | 1   |      | `1`:초과, `2`:부족, `3`:일치 |
 | 12  | 거래증거금과부족금액                   | TRADING_MARGIN_VALUATION_AMOUNT                         | Float  | 22  | 18.3 | 단위 원 |
 | 13  | 현금성자산거래증거금소요액             | CASHABLE_ASSET_TRADING_MARGIN_REQUIRED_VALUE            | Float  | 22  | 18.3 | 소요액 × (1 − 비현금성자산 납입한도비율) |
 | 14  | 현금성자산거래증거금평가금액           | CASHABLE_ASSET_TRADING_MARGIN_VALUATION                 | Float  | 22  | 18.3 | 현금 + 외화/국채/특수채/지방채/외화증권 |
-| 15  | 현금성자산과부족구분코드               | CASHABLE_ASSET_TRADING_MARGIN_OVRES_SHORTS_TYPE_CODE    | String | 1   |      | 소요액 vs 평가금액 비교 (`1`/`2`/`3`) |
+| 15  | 현금성자산과부족구분코드               | [CASHABLE_ASSET_TRADING_MARGIN_OVRES_SHORTS_TYPE_CODE](./codes.md#cashable_asset_trading_margin_ovres_shorts_type_code--tcsmih42301-seq-15-현금성자산-과부족) | String | 1   |      | 소요액 vs 평가금액 비교 (`1`/`2`/`3`) |
 | 16  | 현금성자산거래증거금과부족금액         | CASHABLE_ASSET_TRADING_MARGIN_VALUATION_AMOUNT          | Float  | 22  | 18.3 | 단위 원 |
 | 17  | 필러값                                 | FILLER_VALUE                                            | String | 964 |      | Padding |
 
@@ -112,14 +115,14 @@ Architecture and parsing rules live in [`design.md`](./design.md).
 | Seq | Field (KR)               | Field (EN)                            | Type   | Len | Notes |
 | --- | ------------------------ | ------------------------------------- | ------ | --- | ----- |
 | 1   | 메세지일련번호           | MESSAGE_SEQUENCE_NUMBER               | Long   | 11  | |
-| 2   | 트랜잭션코드             | TRANSACTION_CODE                      | String | 11  | `TCSMIH42401` |
+| 2   | 트랜잭션코드             | [TRANSACTION_CODE](./codes.md#1-transaction-codes-tr-codes) | String | 11  | `TCSMIH42401` |
 | 3   | 전송일자                 | TRANSMIT_DATE                         | String | 8   | `YYYYMMDD` |
-| 4   | 전문완료여부             | EMSG_COMPLT_YN                        | String | 1   | `Y`/`N` |
+| 4   | 전문완료여부             | [EMSG_COMPLT_YN](./codes.md#emsg_complt_yn--전문완료여부-all-messages-seq-4) | String | 1   | `Y`/`N` |
 | 5   | 회원번호                 | MEMBER_NUMBER                         | String | 5   | |
 | 6   | 거래전문회원번호         | NON_CLEARING_MEMBER_NUMBER            | String | 5   | |
-| 7   | 위탁자기통합구분코드     | TRUST_PRINCIPAL_INTEGRATION_TYPE_CODE | String | 2   | `10`:위탁, `20`:자기 |
-| 8   | 시장ID                   | MARKET_IDENTIFICATION                 | String | 3   | |
-| 9   | 증권그룹ID               | SECURITIES_GROUP_IDENTIFICATION       | String | 2   | KRX 차세대 상품 ID체계 |
+| 7   | 위탁자기통합구분코드     | [TRUST_PRINCIPAL_INTEGRATION_TYPE_CODE](./codes.md#4-trust_principal_integration_type_code--위탁자기통합구분코드) | String | 2   | `10`:위탁, `20`:자기 |
+| 8   | 시장ID                   | [MARKET_IDENTIFICATION](./codes.md#7-external-code-sets-referenced-not-enumerated) | String | 3   | |
+| 9   | 증권그룹ID               | [SECURITIES_GROUP_IDENTIFICATION](./codes.md#7-external-code-sets-referenced-not-enumerated) | String | 2   | KRX 차세대 상품 ID체계 |
 | 10  | 종목코드                 | ISSUE_CODE                            | String | 12  | |
 | 11  | 거래량가중평균가격       | TRADING_VOLUME_WEIGHTED_AVERAGE_PRICE | Long   | 10  | |
 | 12  | 필러값                   | FILLER_VALUE                          | String | 289 | Padding |
@@ -131,7 +134,7 @@ Architecture and parsing rules live in [`design.md`](./design.md).
 Same field layout as **TCSMIH41301** (§1) but for equity market, with
 one content difference:
 
-- Seq 8 `MRGN_KIND_TP_CD` is restricted to `1`:거래증거금 (no 위탁).
+- Seq 8 [`MRGN_KIND_TP_CD`](./codes.md#3-mrgn_kind_tp_cd--증거금종류구분코드) is restricted to `1`:거래증거금 (no 위탁).
 - Seq 13 `PRC_CHG_MRGN_RT` note is simply 거래증거금률 (no 유지증거금률 branch).
 - Trailing filler seq 17 `FILLER_VALUE` remains 1,062 bytes.
 
@@ -142,15 +145,15 @@ one content difference:
 | Seq | Field (KR)               | Field (EN)                             | Type   | Len   | I.F  | Notes |
 | --- | ------------------------ | -------------------------------------- | ------ | ----- | ---- | ----- |
 | 1   | 메세지일련번호           | MESSAGE_SEQUENCE_NUMBER                | Long   | 11    |      | |
-| 2   | 트랜잭션코드             | TRANSACTION_CODE                       | String | 11    |      | `TCSMIH43201` |
+| 2   | 트랜잭션코드             | [TRANSACTION_CODE](./codes.md#1-transaction-codes-tr-codes) | String | 11    |      | `TCSMIH43201` |
 | 3   | 전송일자                 | TRANSMIT_DATE                          | String | 8     |      | `YYYYMMDD` |
-| 4   | 전문완료여부             | EMSG_COMPLT_YN                         | String | 1     |      | `Y`/`N` |
+| 4   | 전문완료여부             | [EMSG_COMPLT_YN](./codes.md#emsg_complt_yn--전문완료여부-all-messages-seq-4) | String | 1     |      | `Y`/`N` |
 | 5   | 회차번호                 | RND_NO                                 | Long   | 4     |      | not sequential |
 | 6   | 회차시각                 | RND_TM                                 | String | 9     |      | `HHMMSSsss` |
 | 7   | 데이터산출기준시각       | IM_CALC_BAS_TM                         | String | 9     |      | `HHMMSSsss` |
 | 8   | 회원번호                 | MEMBER_NUMBER                          | String | 5     |      | |
 | 9   | 거래전문회원번호         | NON_CLEARING_MEMBER_NUMBER             | String | 5     |      | |
-| 10  | 위탁자기통합구분코드     | TRUST_PRINCIPAL_INTEGRATION_TYPE_CODE  | String | 2     |      | `10`:위탁, `20`:자기 |
+| 10  | 위탁자기통합구분코드     | [TRUST_PRINCIPAL_INTEGRATION_TYPE_CODE](./codes.md#4-trust_principal_integration_type_code--위탁자기통합구분코드)  | String | 2     |      | `10`:위탁, `20`:자기 |
 | 11  | 거래증거금소요액         | TRADING_MARGIN_REQUIRED_VALUE          | Float  | 22    | 18.3 | 단위 원 |
 | 12  | 필러값                   | FILLER_VALUE                           | String | 1,113 |      | Padding |
 
@@ -161,12 +164,12 @@ one content difference:
 | Seq | Field (KR)                                 | Field (EN)                         | Type   | Len | I.F  | Notes |
 | --- | ------------------------------------------ | ---------------------------------- | ------ | --- | ---- | ----- |
 | 1   | 메세지일련번호                             | MESSAGE_SEQUENCE_NUMBER            | Long   | 11  |      | |
-| 2   | 트랜잭션코드                               | TRANSACTION_CODE                   | String | 11  |      | `TCSMIH43301` |
+| 2   | 트랜잭션코드                               | [TRANSACTION_CODE](./codes.md#1-transaction-codes-tr-codes) | String | 11  |      | `TCSMIH43301` |
 | 3   | 전송일자                                   | TRANSMIT_DATE                      | String | 8   |      | `YYYYMMDD` |
-| 4   | 전문완료여부                               | EMSG_COMPLT_YN                     | String | 1   |      | `Y`/`N` |
+| 4   | 전문완료여부                               | [EMSG_COMPLT_YN](./codes.md#emsg_complt_yn--전문완료여부-all-messages-seq-4) | String | 1   |      | `Y`/`N` |
 | 5   | 회차번호                                   | RND_NO                             | Long   | 4   |      | not sequential |
 | 6   | 회차시각                                   | RND_TM                             | String | 9   |      | `HHMMSSsss` |
-| 7   | 청산결제시장ID                             | CLEARING_SETTLEMENT_MARKET_IDENTIFICATION | String | 3 |      | `SPT`:증권시장 |
+| 7   | 청산결제시장ID                             | [CLEARING_SETTLEMENT_MARKET_IDENTIFICATION](./codes.md#6-clearing_settlement_market_identification--청산결제시장id) | String | 3 |      | `SPT`:증권시장 |
 | 8   | 회원번호                                   | MEMBER_NUMBER                      | String | 5   |      | |
 | 9   | 위탁순위험증거금                           | TRST_NET_RISK_MRGN                 | Float  | 23  | 19.3 | |
 | 10  | 위탁변동증거금                             | TRST_VARI_MRGN                     | Float  | 23  | 19.3 | |
@@ -196,12 +199,12 @@ one content difference:
 | Seq | Field (KR)                                         | Field (EN)                                 | Type   | Len | I.F  | Notes |
 | --- | -------------------------------------------------- | ------------------------------------------ | ------ | --- | ---- | ----- |
 | 1   | 메세지일련번호                                     | MESSAGE_SEQUENCE_NUMBER                    | Long   | 11  |      | |
-| 2   | 트랜잭션코드                                       | TRANSACTION_CODE                           | String | 11  |      | `TCSMIH43401` |
+| 2   | 트랜잭션코드                                       | [TRANSACTION_CODE](./codes.md#1-transaction-codes-tr-codes) | String | 11  |      | `TCSMIH43401` |
 | 3   | 전송일자                                           | TRANSMIT_DATE                              | String | 8   |      | `YYYYMMDD` |
-| 4   | 전문완료여부                                       | EMSG_COMPLT_YN                             | String | 1   |      | `Y`/`N` |
+| 4   | 전문완료여부                                       | [EMSG_COMPLT_YN](./codes.md#emsg_complt_yn--전문완료여부-all-messages-seq-4) | String | 1   |      | `Y`/`N` |
 | 5   | 회차번호                                           | RND_NO                                     | Long   | 4   |      | not sequential |
 | 6   | 회차시각                                           | RND_TM                                     | String | 9   |      | `HHMMSSsss` |
-| 7   | 청산결제시장ID                                     | CLEARING_SETTLEMENT_MARKET_IDENTIFICATION  | String | 3   |      | `SPT`:증권시장 |
+| 7   | 청산결제시장ID                                     | [CLEARING_SETTLEMENT_MARKET_IDENTIFICATION](./codes.md#6-clearing_settlement_market_identification--청산결제시장id)  | String | 3   |      | `SPT`:증권시장 |
 | 8   | 회원번호                                           | MEMBER_NUMBER                              | String | 5   |      | |
 | 9   | 위탁순위험증거금(T+1.5시)                          | TRST_NET_RISK_MRGN                         | Float  | 23  | 19.3 | |
 | 10  | 위탁변동증거금(T+1.5시)                            | TRST_VARI_MRGN                             | Float  | 23  | 19.3 | |
@@ -228,17 +231,17 @@ one content difference:
 | Seq | Field (KR)                 | Field (EN)                             | Type   | Len | Notes |
 | --- | -------------------------- | -------------------------------------- | ------ | --- | ----- |
 | 1   | 메세지일련번호             | MESSAGE_SEQUENCE_NUMBER                | Long   | 11  | |
-| 2   | 트랜잭션코드               | TRANSACTION_CODE                       | String | 11  | `TCSMIH43501` |
+| 2   | 트랜잭션코드               | [TRANSACTION_CODE](./codes.md#1-transaction-codes-tr-codes) | String | 11  | `TCSMIH43501` |
 | 3   | 전송일자                   | TRANSMIT_DATE                          | String | 8   | `YYYYMMDD` |
-| 4   | 전문완료여부               | EMSG_COMPLT_YN                         | String | 1   | `Y`/`N` |
+| 4   | 전문완료여부               | [EMSG_COMPLT_YN](./codes.md#emsg_complt_yn--전문완료여부-all-messages-seq-4) | String | 1   | `Y`/`N` |
 | 5   | 회차번호                   | ROUND_NUMBER                           | Long   | 4   | |
 | 6   | 회차시각                   | ROUND_TIME                             | String | 9   | `HHMMSSsss` |
 | 7   | 데이터산출기준시각         | CALCULATE_BASE_TIME                    | String | 9   | `HHMMSSsss` |
 | 8   | 회원번호                   | MEMBER_NUMBER                          | String | 5   | |
 | 9   | 거래전문회원번호           | NON_CLEARING_MEMBER_NUMBER             | String | 5   | |
-| 10  | 위탁자기통합구분코드       | TRUST_PRINCIPAL_INTEGRATION_TYPE_CODE  | String | 2   | `10`:위탁, `20`:자기 |
-| 11  | 시장ID                     | MARKET_IDENTIFICATION                  | String | 3   | |
-| 12  | 증권그룹ID                 | SECURITIES_GROUP_IDENTIFICATION        | String | 2   | KRX 차세대 상품 ID체계 |
+| 10  | 위탁자기통합구분코드       | [TRUST_PRINCIPAL_INTEGRATION_TYPE_CODE](./codes.md#4-trust_principal_integration_type_code--위탁자기통합구분코드)  | String | 2   | `10`:위탁, `20`:자기 |
+| 11  | 시장ID                     | [MARKET_IDENTIFICATION](./codes.md#7-external-code-sets-referenced-not-enumerated) | String | 3   | |
+| 12  | 증권그룹ID                 | [SECURITIES_GROUP_IDENTIFICATION](./codes.md#7-external-code-sets-referenced-not-enumerated) | String | 2   | KRX 차세대 상품 ID체계 |
 | 13  | 종목코드                   | ISSUE_CODE                             | String | 12  | |
 | 14  | 매도체결수량               | ASK_TRADING_VOLUME                     | Long   | 12  | 당일 체결분; 거래정정 미반영 |
 | 15  | 매수체결수량               | BID_TRADING_VOLUME                     | Long   | 12  | 당일 체결분; 거래정정 미반영 |
@@ -263,14 +266,14 @@ one content difference:
 | Seq | Field (KR)                 | Field (EN)                           | Type   | Len | I.F  | Notes |
 | --- | -------------------------- | ------------------------------------ | ------ | --- | ---- | ----- |
 | 1   | 메세지일련번호             | MESSAGE_SEQUENCE_NUMBER              | Long   | 11  |      | |
-| 2   | 트랜잭션코드               | TRANSACTION_CODE                     | String | 11  |      | `TCSMIH43601` (see typo note) |
+| 2   | 트랜잭션코드               | [TRANSACTION_CODE](./codes.md#1-transaction-codes-tr-codes) | String | 11  |      | `TCSMIH43601` (see typo note) |
 | 3   | 전송일자                   | TRANSMIT_DATE                        | String | 8   |      | `YYYYMMDD` |
-| 4   | 전문완료여부               | EMSG_COMPLT_YN                       | String | 1   |      | `Y`/`N` |
+| 4   | 전문완료여부               | [EMSG_COMPLT_YN](./codes.md#emsg_complt_yn--전문완료여부-all-messages-seq-4) | String | 1   |      | `Y`/`N` |
 | 5   | 회차번호                   | ROUND_NUMBER                         | Long   | 4   |      | |
 | 6   | 회차시각                   | ROUND_TIME                           | String | 9   |      | `HHMMSSsss` |
 | 7   | 데이터산출기준시각         | CALCULATE_BASE_TIME                  | String | 9   |      | `HHMMSSsss` |
-| 8   | 시장ID                     | MARKET_IDENTIFICATION                | String | 3   |      | |
-| 9   | 증권그룹ID                 | SECURITIES_GROUP_IDENTIFICATION      | String | 2   |      | KRX 차세대 상품 ID체계 |
+| 8   | 시장ID                     | [MARKET_IDENTIFICATION](./codes.md#7-external-code-sets-referenced-not-enumerated) | String | 3   |      | |
+| 9   | 증권그룹ID                 | [SECURITIES_GROUP_IDENTIFICATION](./codes.md#7-external-code-sets-referenced-not-enumerated) | String | 2   |      | KRX 차세대 상품 ID체계 |
 | 10  | 종목코드                   | ISSUE_CODE                           | String | 12  |      | |
 | 11  | 증거금기준가격             | MARGIN_BASE_PRICE                    | Float  | 18  | 9.8  | |
 | 12  | 필러값                     | FILLER_VALUE                         | String | 97  |      | Padding |

@@ -1,0 +1,110 @@
+transaction_code: TCSMIH43501
+description: 장중추가증거금 — 위탁자기별 종목별 포지션 / VWAP (증권시장)
+market: equity
+encoding: euc-kr
+record_length: 1200
+
+# Repeating group (issues): 20 × 53 bytes = 1,060 bytes.
+# Source spec reuses seq 12/13 for two distinct fields inside the array;
+# here we treat them in insertion order inside the array.fields list.
+
+layout:
+  - kind: field
+    name: MESSAGE_SEQUENCE_NUMBER
+    kor_name: 메세지일련번호
+    kor_description: 메시지 일련번호
+    type: Long
+    length: 11
+  - kind: field
+    name: TRANSACTION_CODE
+    kor_name: 트랜잭션코드
+    kor_description: 거래 코드 (TCSMIH43501)
+    type: String
+    length: 11
+  - kind: field
+    name: TRANSMIT_DATE
+    kor_name: 전송일자
+    kor_description: 전송일자 YYYYMMDD
+    type: String
+    length: 8
+  - kind: field
+    name: EMSG_COMPLT_YN
+    kor_name: 전문완료여부
+    kor_description: Y=전송완료, N=전송중
+    type: String
+    length: 1
+  - kind: field
+    name: ROUND_NUMBER
+    kor_name: 회차번호
+    kor_description: 회차번호
+    type: Long
+    length: 4
+  - kind: field
+    name: ROUND_TIME
+    kor_name: 회차시각
+    kor_description: HHMMSSsss
+    type: String
+    length: 9
+  - kind: field
+    name: CALCULATE_BASE_TIME
+    kor_name: 데이터산출기준시각
+    kor_description: HHMMSSsss
+    type: String
+    length: 9
+  - kind: field
+    name: MEMBER_NUMBER
+    kor_name: 회원번호
+    kor_description: 회원번호
+    type: String
+    length: 5
+  - kind: field
+    name: NON_CLEARING_MEMBER_NUMBER
+    kor_name: 거래전문회원번호
+    kor_description: 거래전문회원번호
+    type: String
+    length: 5
+  - kind: array
+    name: issues
+    count: 20
+    fields:
+      - name: TRUST_PRINCIPAL_INTEGRATION_TYPE_CODE
+        kor_name: 위탁자기통합구분코드
+        kor_description: 10=위탁, 20=자기
+        type: String
+        length: 2
+      - name: MARKET_IDENTIFICATION
+        kor_name: 시장ID
+        kor_description: KRX 차세대 상품 ID체계 — 시장ID
+        type: String
+        length: 3
+      - name: SECURITIES_GROUP_IDENTIFICATION
+        kor_name: 증권그룹ID
+        kor_description: KRX 차세대 상품 ID체계 — 증권그룹ID
+        type: String
+        length: 2
+      - name: ISSUE_CODE
+        kor_name: 종목코드
+        kor_description: 종목코드
+        type: String
+        length: 12
+      - name: ASK_TRADING_VOLUME
+        kor_name: 매도체결수량
+        kor_description: 당일 체결분; 거래정정 미반영
+        type: Long
+        length: 12
+      - name: BID_TRADING_VOLUME
+        kor_name: 매수체결수량
+        kor_description: 당일 체결분; 거래정정 미반영
+        type: Long
+        length: 12
+      - name: TRADING_VOLUME_WEIGHTED_AVERAGE_PRICE
+        kor_name: 거래량가중평균가격
+        kor_description: 당일 거래량가중평균가격
+        type: Long
+        length: 10
+  - kind: field
+    name: FILLER_VALUE
+    kor_name: 필러값
+    kor_description: 예비 영역
+    type: String
+    length: 77
