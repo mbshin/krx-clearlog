@@ -118,45 +118,51 @@ Each TR code has a YAML file under `krx_parser/schemas/`. **Every field
 carries a Korean description** so the Streamlit UI can render Korean
 column labels without extra translation tables.
 
+The file declares a `record_length` (total DATA-body bytes, excluding
+the KMAPv2 envelope) and a single ordered `layout:` list of items;
+each item is either a `kind: field` or a `kind: array` whose `fields:`
+sub-list describes one array element. This keeps the file structure
+aligned with the byte layout — offsets are computed left-to-right.
+
 ```yaml
 transaction_code: TCSMIH42101
-description: 거래증거금_종목별증거금률(증권시장)
+description: 거래증거금 — 종목별 증거금률 (증권시장)
 market: equity
 encoding: euc-kr
-arrays:
-  - name: issues
-    count: 16
-    member_fields: [MARKET_IDENTIFICATION, SECURITIES_GROUP_IDENTIFICATION,
-                    ISSUE_CODE, ISU_KOR_ABBRV, TRD_MRGN_RT]
-fields:
-  - seq: 1
+record_length: 1200
+
+layout:
+  - kind: field
     name: MESSAGE_SEQUENCE_NUMBER
     kor_name: 메세지일련번호
     kor_description: 메시지 일련번호
     type: Long
     length: 11
-  - seq: 2
+  - kind: field
     name: TRANSACTION_CODE
     kor_name: 트랜잭션코드
     kor_description: 거래 코드 (TCSMIH42101)
     type: String
     length: 11
-  - seq: 3
-    name: TRANSMIT_DATE
-    kor_name: 전송일자
-    kor_description: 전송일자 YYYYMMDD, 적용일 당일 15시 송신
-    type: String
-    length: 8
-  # ...
-  - seq: 9
-    name: TRD_MRGN_RT
-    kor_name: 거래증거금률
-    kor_description: 종목별 거래증거금률 (단위 %, 6.6 포맷)
-    type: Float
-    length: 13
-    int_digits: 6
-    frac_digits: 6
-  - seq: 10
+  # ... seq 3, 4
+  - kind: array
+    name: issues
+    count: 16
+    fields:
+      - name: MARKET_IDENTIFICATION
+        kor_name: 시장ID
+        kor_description: KRX 차세대 상품 ID체계 — 시장ID
+        type: String
+        length: 3
+      # ... SECURITIES_GROUP_IDENTIFICATION, ISSUE_CODE, ISU_KOR_ABBRV
+      - name: TRD_MRGN_RT
+        kor_name: 거래증거금률
+        kor_description: 단위 %; 6.6 포맷
+        type: String
+        length: 13
+        int_digits: 6
+        frac_digits: 6
+  - kind: field
     name: FILLER_VALUE
     kor_name: 필러값
     kor_description: 예비 영역
@@ -164,13 +170,20 @@ fields:
     length: 49
 ```
 
-Loader behaviour:
+Numeric fields — whether declared `Float` or `String` with
+`int_digits`/`frac_digits` — allow a single optional sign byte when
+`length > int_digits + frac_digits` (`' '`/`'+'`/`'0'` → positive,
+`'-'` → negative). This is consistent across every TR code we have
+and is still awaiting confirmation against a live record (see §14).
 
-- Compute cumulative byte offsets.
-- Validate sum of field lengths × repeat counts against declared record
-  length.
-- Expose a fast `[(name, kor_name, start, end, type, params)]` slicing
-  table.
+Loader behaviour (`krx_parser.registry.load_registry`):
+
+- Walk `layout` left-to-right, computing `offset` for each field.
+- Validate sum of item lengths (flat fields + arrays × element
+  length) equals the declared `record_length`.
+- Validate each numeric field's `length - int_digits - frac_digits`
+  is `0` or `1` (sign-byte budget).
+- Expose `SchemaRegistry.get(tr_code) -> Schema` for parser dispatch.
 
 ## 8. Parser Design
 
@@ -342,16 +355,27 @@ krx-clearlog/
 ├── spec/
 │   ├── design.md
 │   ├── messages.md
-│   └── codes.md
+│   ├── codes.md
+│   ├── regulation.md
+│   └── enforcement_rules.md
 ├── pyproject.toml
-├── requirements.lock
+├── requirements.lock           # TBD: lockfile for offline install
+├── alembic.ini
 ├── alembic/
+│   ├── env.py
+│   ├── script.py.mako
 │   └── versions/
-├── data/
-│   └── krx.db           # SQLite file (created on first run; git-ignored)
+│       └── 0001_initial.py
+├── data/                       # SQLite DB (created on first run; git-ignored)
+│   └── krx.db
+├── samples/                    # real KRX log files (git-ignored)
 ├── krx_parser/
 │   ├── __init__.py
-│   ├── parser.py
+│   ├── exceptions.py
+│   ├── schema.py               # Field / Array / Schema dataclasses
+│   ├── registry.py             # SchemaRegistry, YAML loader
+│   ├── parser.py               # Parser.parse(bytes) -> ParsedMessage
+│   ├── settings.py             # pydantic-settings
 │   ├── schemas/
 │   │   ├── TCSMIH41301.yaml
 │   │   ├── TCSMIH42101.yaml
@@ -363,29 +387,35 @@ krx-clearlog/
 │   │   ├── TCSMIH43301.yaml
 │   │   ├── TCSMIH43401.yaml
 │   │   ├── TCSMIH43501.yaml
-│   │   ├── TCSMIH43601.yaml
-│   │   └── registry.py
+│   │   └── TCSMIH43601.yaml
 │   ├── codes/
-│   │   └── enums.py
-│   ├── models.py
+│   │   ├── __init__.py
+│   │   └── enums.py            # StrEnums per spec/codes.md
 │   └── db/
 │       ├── __init__.py
-│       └── repository.py
+│       ├── engine.py           # create_engine + WAL/foreign_keys pragmas
+│       ├── models.py           # RawMessage / ParsedMessageRow
+│       ├── repository.py       # Repository.ingest + .search
+│       └── serialize.py        # JSON body (Decimal → str) round-trip
 ├── app/
-│   ├── main.py
+│   ├── __init__.py
+│   ├── helpers.py              # cached registry/parser/engine + scopes
+│   ├── main.py                 # landing page
 │   └── pages/
 │       ├── 1_Paste_Upload.py
 │       ├── 2_Lookup.py
 │       ├── 3_Inspect.py
 │       └── 4_Schemas.py
 ├── shl/
-│   ├── install.sh       # offline install (QA + prod)
-│   ├── start.sh         # launch Streamlit, write .krx.pid
-│   └── stop.sh          # SIGTERM → SIGKILL on timeout
+│   ├── install.sh              # offline install (QA + prod)
+│   ├── start.sh                # launch Streamlit, write .krx.pid
+│   └── stop.sh                 # SIGTERM → SIGKILL on timeout
 └── tests/
+    ├── __init__.py
+    ├── conftest.py             # shared registry fixture
+    ├── builder.py              # inverse encoder — build_record(schema, …)
     ├── test_parser.py
-    └── fixtures/
-        └── <TR_code>_sample.dat
+    └── test_repository.py
 ```
 
 ## 13. Configuration
